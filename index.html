@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>胶片负片预览</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div class="brand">
+          <div class="mark"></div>
+          <div>
+            <h1>负片实时预览</h1>
+            <p>选择彩色或黑白负片，直接用摄像头预览反转效果。</p>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="segmented" role="radiogroup" aria-label="负片模式">
+            <label class="segmented__item">
+              <input type="radio" name="mode" value="color" checked />
+              <span>彩色负片</span>
+            </label>
+            <label class="segmented__item">
+              <input type="radio" name="mode" value="bw" />
+              <span>黑白负片</span>
+            </label>
+          </div>
+          <button id="startBtn" class="primary">启用摄像头</button>
+          <button id="stopBtn" class="ghost" disabled>停止</button>
+        </div>
+      </header>
+
+      <section class="viewer">
+        <div class="frame">
+          <canvas id="output" width="1280" height="720"></canvas>
+          <div class="overlay" id="status">等待摄像头...</div>
+        </div>
+        <div class="hints">
+          <p>建议：在自然光或均匀补光下效果更稳定。</p>
+          <p>黑白模式会先转灰度再反相，彩色模式直接反相。</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>纯前端 · 可直接部署到 GitHub Pages</span>
+      </footer>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
