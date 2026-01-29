@@ -1,9 +1,12 @@
 const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const guideCanvas = document.getElementById('guide');
+const guideCtx = guideCanvas.getContext('2d');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
+const autoFrameToggle = document.getElementById('autoFrame');
 
 const video = document.createElement('video');
 video.setAttribute('playsinline', '');
@@ -11,6 +14,10 @@ video.setAttribute('autoplay', '');
 
 let stream = null;
 let rafId = null;
+let frameCount = 0;
+let lastBox = null;
+const detectCanvas = document.createElement('canvas');
+const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -84,7 +91,97 @@ function syncCanvasSize() {
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
+    guideCanvas.width = width;
+    guideCanvas.height = height;
   }
+}
+
+function detectFilmBox() {
+  const targetWidth = Math.min(360, canvas.width);
+  const scale = canvas.width / targetWidth;
+  const targetHeight = Math.round(canvas.height / scale);
+  detectCanvas.width = targetWidth;
+  detectCanvas.height = targetHeight;
+  detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+  const image = detectCtx.getImageData(0, 0, targetWidth, targetHeight);
+  const data = image.data;
+  const gray = new Float32Array(targetWidth * targetHeight);
+
+  for (let i = 0, j = 0; i < data.length; i += 4, j += 1) {
+    gray[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+
+  const w = targetWidth;
+  const h = targetHeight;
+  let sumMag = 0;
+  const mag = new Float32Array(w * h);
+
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const idx = y * w + x;
+      const gx =
+        -gray[idx - w - 1] - 2 * gray[idx - 1] - gray[idx + w - 1] +
+        gray[idx - w + 1] + 2 * gray[idx + 1] + gray[idx + w + 1];
+      const gy =
+        -gray[idx - w - 1] - 2 * gray[idx - w] - gray[idx - w + 1] +
+        gray[idx + w - 1] + 2 * gray[idx + w] + gray[idx + w + 1];
+      const m = Math.abs(gx) + Math.abs(gy);
+      mag[idx] = m;
+      sumMag += m;
+    }
+  }
+
+  const avgMag = sumMag / (w * h);
+  const threshold = avgMag * 2.6;
+  let minX = w;
+  let minY = h;
+  let maxX = 0;
+  let maxY = 0;
+  let count = 0;
+
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const idx = y * w + x;
+      if (mag[idx] > threshold) {
+        count += 1;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  const minCount = w * h * 0.01;
+  if (count < minCount) return null;
+
+  const boxW = maxX - minX;
+  const boxH = maxY - minY;
+  const area = boxW * boxH;
+  const areaRatio = area / (w * h);
+  if (areaRatio < 0.1 || areaRatio > 0.9) return null;
+
+  const ratio = boxW / boxH;
+  if (ratio < 1.2 || ratio > 1.9) return null;
+
+  return {
+    x: minX * scale,
+    y: minY * scale,
+    w: boxW * scale,
+    h: boxH * scale,
+  };
+}
+
+function drawGuide(box) {
+  guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+  if (!box) return;
+  guideCtx.lineWidth = Math.max(2, guideCanvas.width / 320);
+  guideCtx.strokeStyle = 'rgba(255, 138, 91, 0.9)';
+  guideCtx.shadowColor = 'rgba(255, 138, 91, 0.35)';
+  guideCtx.shadowBlur = 12;
+  guideCtx.strokeRect(box.x, box.y, box.w, box.h);
+  guideCtx.shadowBlur = 0;
 }
 
 function renderLoop() {
@@ -115,6 +212,13 @@ function renderLoop() {
   }
 
   ctx.putImageData(frame, 0, 0);
+
+  frameCount += 1;
+  if (autoFrameToggle.checked && frameCount % 4 === 0) {
+    const box = detectFilmBox();
+    if (box) lastBox = box;
+  }
+  drawGuide(autoFrameToggle.checked ? lastBox : null);
 }
 
 startBtn.addEventListener('click', startCamera);
