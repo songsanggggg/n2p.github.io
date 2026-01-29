@@ -6,10 +6,17 @@ const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
 const autoFrameToggle = document.getElementById('autoFrame');
+const detectAggressiveness = document.getElementById('detectAggressiveness');
+const detectAggressivenessValue = document.getElementById(
+  'detectAggressivenessValue'
+);
 
 const video = document.createElement('video');
 video.setAttribute('playsinline', '');
 video.setAttribute('autoplay', '');
+
+const detectCanvas = document.createElement('canvas');
+const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
 
 let stream = null;
 let rafId = null;
@@ -17,6 +24,8 @@ let frameCount = 0;
 let lastBoxes = [];
 let lockedBox = null;
 let dragState = null;
+let manualLock = false;
+let detectScale = 1;
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -102,6 +111,19 @@ function syncCanvasSize() {
     guideCanvas.width = width;
     guideCanvas.height = height;
   }
+  syncDetectCanvasSize();
+}
+
+function syncDetectCanvasSize() {
+  const sourceW = canvas.width || 1280;
+  const sourceH = canvas.height || 720;
+  const targetW = Math.min(720, sourceW);
+  detectScale = targetW / sourceW;
+  const targetH = Math.max(1, Math.round(sourceH * detectScale));
+  if (detectCanvas.width !== Math.round(targetW) || detectCanvas.height !== targetH) {
+    detectCanvas.width = Math.round(targetW);
+    detectCanvas.height = targetH;
+  }
 }
 
 function drawGuide(boxes) {
@@ -142,6 +164,134 @@ function drawGuide(boxes) {
     }
   });
   guideCtx.shadowBlur = 0;
+}
+
+function lerp(start, end, t) {
+  return start + (end - start) * t;
+}
+
+function getDetectParams() {
+  const value = Math.max(0, Math.min(100, Number(detectAggressiveness?.value || 70)));
+  const t = value / 100;
+  return {
+    cannyLow: lerp(60, 20, t),
+    cannyHigh: lerp(160, 80, t),
+    minAreaRatio: lerp(0.008, 0.0018, t),
+    ratioMax: lerp(5.5, 9.5, t),
+    rectangularityMin: lerp(0.35, 0.12, t),
+    dilateIters: Math.round(lerp(1, 3, t)),
+    value,
+  };
+}
+
+function updateAggressivenessLabel() {
+  if (!detectAggressivenessValue) return;
+  const value = Math.max(0, Math.min(100, Number(detectAggressiveness?.value || 70)));
+  detectAggressivenessValue.textContent = `${value}%`;
+}
+
+function updateLockedInLastBoxes() {
+  if (!lockedBox) return;
+  if (!lastBoxes || lastBoxes.length === 0) {
+    lastBoxes = [lockedBox];
+    return;
+  }
+  let bestIndex = -1;
+  let bestIou = 0;
+  lastBoxes.forEach((box, index) => {
+    const overlap = iou(box, lockedBox);
+    if (overlap > bestIou) {
+      bestIou = overlap;
+      bestIndex = index;
+    }
+  });
+  if (bestIndex >= 0 && bestIou > 0.2) {
+    lastBoxes[bestIndex] = lockedBox;
+  } else {
+    lastBoxes = [lockedBox, ...lastBoxes].slice(0, 20);
+  }
+}
+
+function iou(a, b) {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const w = Math.max(0, x2 - x1);
+  const h = Math.max(0, y2 - y1);
+  const inter = w * h;
+  if (inter <= 0) return 0;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union ? inter / union : 0;
+}
+
+function detectFilmFrames() {
+  if (!window.__cvReady) return [];
+  const params = getDetectParams();
+  detectCtx.drawImage(video, 0, 0, detectCanvas.width, detectCanvas.height);
+
+  const src = cv.imread(detectCanvas);
+  const gray = new cv.Mat();
+  const blur = new cv.Mat();
+  const edges = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
+  cv.Canny(blur, edges, params.cannyLow, params.cannyHigh);
+  const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+  cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), params.dilateIters);
+  cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+  const boxes = [];
+  const minArea =
+    detectCanvas.width * detectCanvas.height * params.minAreaRatio;
+  for (let i = 0; i < contours.size(); i += 1) {
+    const cnt = contours.get(i);
+    const area = cv.contourArea(cnt);
+    if (area < minArea) {
+      cnt.delete();
+      continue;
+    }
+    const rect = cv.minAreaRect(cnt);
+    const width = Math.max(rect.size.width, 1);
+    const height = Math.max(rect.size.height, 1);
+    const ratio = Math.max(width, height) / Math.max(1, Math.min(width, height));
+    const rectArea = width * height;
+    const rectangularity = rectArea ? area / rectArea : 0;
+
+    if (ratio > params.ratioMax || rectangularity < params.rectangularityMin) {
+      cnt.delete();
+      continue;
+    }
+    const bounds = cv.boundingRect(cnt);
+    boxes.push({
+      x: bounds.x,
+      y: bounds.y,
+      w: bounds.width,
+      h: bounds.height,
+      area: bounds.width * bounds.height,
+    });
+    cnt.delete();
+  }
+
+  kernel.delete();
+  src.delete();
+  gray.delete();
+  blur.delete();
+  edges.delete();
+  contours.delete();
+  hierarchy.delete();
+
+  boxes.sort((a, b) => b.area - a.area);
+  const kept = [];
+  for (const box of boxes) {
+    const overlap = kept.some((k) => iou(k, box) > 0.85);
+    if (!overlap) kept.push(box);
+    if (kept.length >= 20) break;
+  }
+  return kept;
 }
 
 function getHandleAt(x, y, box) {
@@ -213,15 +363,42 @@ function renderLoop() {
   ctx.putImageData(frame, 0, 0);
 
   if (autoFrameToggle.checked) {
-    lastBoxes = lockedBox ? [lockedBox] : [];
+    if (!dragState && frameCount % 6 === 0) {
+      const detected = detectFilmFrames();
+    if (detected.length > 0) {
+      lastBoxes = detected.map((box) => {
+        const scaled = {
+          x: box.x / detectScale,
+          y: box.y / detectScale,
+          w: box.w / detectScale,
+          h: box.h / detectScale,
+        };
+        clampBox(scaled);
+        return scaled;
+      });
+      if (!manualLock) {
+        lockedBox = { ...lastBoxes[0] };
+      } else {
+        updateLockedInLastBoxes();
+      }
+    } else if (lastBoxes.length === 0) {
+      lockedBox = createDefaultBox();
+      lastBoxes = [lockedBox];
+    }
+    }
     drawGuide(lastBoxes);
   } else {
     drawGuide(null);
   }
+
+  frameCount += 1;
 }
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
+
+updateAggressivenessLabel();
+detectAggressiveness?.addEventListener('input', updateAggressivenessLabel);
 
 modeInputs.forEach((input) => {
   input.addEventListener('change', () => {
@@ -233,6 +410,7 @@ autoFrameToggle.addEventListener('change', () => {
   if (!autoFrameToggle.checked) {
     lastBoxes = [];
     lockedBox = null;
+    manualLock = false;
     drawGuide(null);
   }
 });
@@ -243,11 +421,41 @@ guideCanvas.addEventListener('pointerdown', (event) => {
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
 
-  if (!lockedBox) {
-    lockedBox = createDefaultBox();
-    lastBoxes = [lockedBox];
+  let targetBox = null;
+  if (lastBoxes.length > 0) {
+    for (const box of lastBoxes) {
+      if (
+        x >= box.x &&
+        x <= box.x + box.w &&
+        y >= box.y &&
+        y <= box.y + box.h
+      ) {
+        if (!targetBox || box.w * box.h < targetBox.w * targetBox.h) {
+          targetBox = box;
+        }
+      }
+    }
   }
 
+  if (targetBox) {
+    lockedBox = { ...targetBox };
+    manualLock = true;
+  } else if (!lockedBox) {
+    lockedBox = createDefaultBox();
+    lastBoxes = [lockedBox];
+  } else if (
+    x < lockedBox.x ||
+    x > lockedBox.x + lockedBox.w ||
+    y < lockedBox.y ||
+    y > lockedBox.y + lockedBox.h
+  ) {
+    manualLock = false;
+    lockedBox = null;
+  }
+
+  if (!lockedBox) {
+    return;
+  }
   const handle = getHandleAt(x, y, lockedBox);
   if (handle) {
     dragState = { type: handle.id, startX: x, startY: y, box: { ...lockedBox } };
@@ -298,7 +506,8 @@ guideCanvas.addEventListener('pointermove', (event) => {
 
   clampBox(box);
   lockedBox = box;
-  lastBoxes = [lockedBox];
+  manualLock = true;
+  updateLockedInLastBoxes();
 });
 
 guideCanvas.addEventListener('pointerup', (event) => {

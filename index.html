@@ -25,6 +25,18 @@
             <input type="checkbox" id="autoFrame" checked />
             <span>锁定/拖拽</span>
           </label>
+          <label class="slider">
+            <span>识别强度</span>
+            <input
+              type="range"
+              id="detectAggressiveness"
+              min="0"
+              max="100"
+              step="1"
+              value="70"
+            />
+            <em id="detectAggressivenessValue">70%</em>
+          </label>
           <div class="actions">
             <button id="startBtn" class="primary">开始</button>
             <button id="stopBtn" class="ghost" disabled>停止</button>
