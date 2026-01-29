@@ -1,7 +1,5 @@
 const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
-const rawCanvas = document.getElementById('raw');
-const rawCtx = rawCanvas.getContext('2d');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -86,15 +84,12 @@ function syncCanvasSize() {
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
-    rawCanvas.width = width;
-    rawCanvas.height = height;
   }
 }
 
 function renderLoop() {
   rafId = requestAnimationFrame(renderLoop);
   syncCanvasSize();
-  rawCtx.drawImage(video, 0, 0, rawCanvas.width, rawCanvas.height);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = frame.data;
