@@ -29,6 +29,8 @@ let dragState = null;
 let manualLock = false;
 let detectScale = 1;
 let paused = false;
+let imageCapture = null;
+let trackCapabilities = null;
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -55,6 +57,8 @@ async function startCamera() {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
         focusMode: 'continuous',
       },
       audio: false,
@@ -67,6 +71,31 @@ async function startCamera() {
       );
     }
     await applyContinuousFocus(stream);
+    imageCapture = null;
+    trackCapabilities = null;
+    const [track] = stream.getVideoTracks();
+    if (track && window.ImageCapture) {
+      try {
+        imageCapture = new ImageCapture(track);
+        if (track.getCapabilities) {
+          trackCapabilities = track.getCapabilities();
+          if (trackCapabilities.width && trackCapabilities.height) {
+            const maxWidth = trackCapabilities.width.max;
+            const maxHeight = trackCapabilities.height.max;
+            try {
+              await track.applyConstraints({
+                width: { ideal: maxWidth },
+                height: { ideal: maxHeight },
+              });
+            } catch (error) {
+              // Ignore if the device rejects max constraints.
+            }
+          }
+        }
+      } catch (error) {
+        imageCapture = null;
+      }
+    }
     syncCanvasSize();
     stopBtn.disabled = false;
     startBtn.disabled = true;
@@ -423,18 +452,53 @@ pauseBtn.addEventListener('click', () => {
   }
 });
 
-saveBtn.addEventListener('click', () => {
+saveBtn.addEventListener('click', async () => {
   if (!lockedBox) {
     lockedBox = createDefaultBox();
     lastBoxes = [lockedBox];
   }
   const srcCanvas = document.createElement('canvas');
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-  const sourceW = video.videoWidth || canvas.width;
-  const sourceH = video.videoHeight || canvas.height;
-  srcCanvas.width = sourceW;
-  srcCanvas.height = sourceH;
-  srcCtx.drawImage(video, 0, 0, sourceW, sourceH);
+  let sourceW = video.videoWidth || canvas.width;
+  let sourceH = video.videoHeight || canvas.height;
+  let frameSource = video;
+
+  if (imageCapture && imageCapture.takePhoto) {
+    try {
+      const blob = await imageCapture.takePhoto();
+      const bitmap = await createImageBitmap(blob);
+      sourceW = bitmap.width;
+      sourceH = bitmap.height;
+      srcCanvas.width = sourceW;
+      srcCanvas.height = sourceH;
+      srcCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      frameSource = null;
+    } catch (error) {
+      frameSource = video;
+    }
+  }
+
+  if (frameSource && imageCapture && imageCapture.grabFrame) {
+    try {
+      const bitmap = await imageCapture.grabFrame();
+      sourceW = bitmap.width;
+      sourceH = bitmap.height;
+      srcCanvas.width = sourceW;
+      srcCanvas.height = sourceH;
+      srcCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      frameSource = null;
+    } catch (error) {
+      frameSource = video;
+    }
+  }
+
+  if (frameSource === video) {
+    srcCanvas.width = sourceW;
+    srcCanvas.height = sourceH;
+    srcCtx.drawImage(video, 0, 0, sourceW, sourceH);
+  }
   const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
   const data = frame.data;
   const mode = getMode();
@@ -469,10 +533,14 @@ saveBtn.addEventListener('click', () => {
   const cropCtx = crop.getContext('2d');
   cropCtx.imageSmoothingEnabled = true;
   cropCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
-  const link = document.createElement('a');
-  link.download = `frame-${Date.now()}.png`;
-  link.href = crop.toDataURL('image/png');
-  link.click();
+  crop.toBlob((blob) => {
+    if (!blob) return;
+    const link = document.createElement('a');
+    link.download = `frame-${Date.now()}.png`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }, 'image/png');
 });
 
 updateAggressivenessLabel();
