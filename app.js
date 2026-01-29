@@ -162,7 +162,7 @@ function drawGuide(boxes) {
     guideCtx.strokeRect(box.x, box.y, box.w, box.h);
 
     if (isLocked) {
-      const handle = Math.max(10, guideCanvas.width / 40);
+      const handle = getHandleSize();
       const half = handle / 2;
       const points = [
         [box.x, box.y],
@@ -177,6 +177,14 @@ function drawGuide(boxes) {
     }
   });
   guideCtx.shadowBlur = 0;
+}
+
+function getHandleSize() {
+  return Math.max(20, guideCanvas.width / 26);
+}
+
+function getHandleHitbox() {
+  return Math.max(34, guideCanvas.width / 16);
 }
 
 function lerp(start, end, t) {
@@ -302,8 +310,8 @@ function detectFilmFrames() {
 }
 
 function getHandleAt(x, y, box) {
-  const handle = Math.max(12, guideCanvas.width / 36);
-  const half = handle / 2;
+  const hitbox = getHandleHitbox();
+  const half = hitbox / 2;
   const points = [
     { id: 'tl', x: box.x, y: box.y },
     { id: 'tr', x: box.x + box.w, y: box.y },
@@ -420,7 +428,35 @@ saveBtn.addEventListener('click', () => {
     lockedBox = createDefaultBox();
     lastBoxes = [lockedBox];
   }
-  const srcCanvas = canvas;
+  const srcCanvas = document.createElement('canvas');
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  const sourceW = video.videoWidth || canvas.width;
+  const sourceH = video.videoHeight || canvas.height;
+  srcCanvas.width = sourceW;
+  srcCanvas.height = sourceH;
+  srcCtx.drawImage(video, 0, 0, sourceW, sourceH);
+  const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
+  const data = frame.data;
+  const mode = getMode();
+  if (mode === 'bw') {
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      const inv = 255 - gray;
+      data[i] = inv;
+      data[i + 1] = inv;
+      data[i + 2] = inv;
+    }
+  } else {
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = 255 - data[i];
+      data[i + 1] = 255 - data[i + 1];
+      data[i + 2] = 255 - data[i + 2];
+    }
+  }
+  srcCtx.putImageData(frame, 0, 0);
   const crop = document.createElement('canvas');
   const scaleX = srcCanvas.width / canvas.width;
   const scaleY = srcCanvas.height / canvas.height;
@@ -431,6 +467,7 @@ saveBtn.addEventListener('click', () => {
   crop.width = Math.round(sw);
   crop.height = Math.round(sh);
   const cropCtx = crop.getContext('2d');
+  cropCtx.imageSmoothingEnabled = true;
   cropCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
   const link = document.createElement('a');
   link.download = `frame-${Date.now()}.png`;
@@ -468,14 +505,6 @@ guideCanvas.addEventListener('pointerdown', (event) => {
   } else if (!lockedBox) {
     lockedBox = createDefaultBox();
     lastBoxes = [lockedBox];
-  } else if (
-    x < lockedBox.x ||
-    x > lockedBox.x + lockedBox.w ||
-    y < lockedBox.y ||
-    y > lockedBox.y + lockedBox.h
-  ) {
-    manualLock = false;
-    lockedBox = null;
   }
 
   if (!lockedBox) {
