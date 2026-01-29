@@ -177,20 +177,6 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
-.frame__label {
-  position: absolute;
-  top: 14px;
-  left: 20px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(12, 14, 18, 0.75);
-  color: rgba(242, 243, 247, 0.85);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
-
 canvas {
   width: 100%;
   height: auto;
@@ -238,11 +224,6 @@ canvas {
     padding: 16px;
   }
 
-  .frame__label {
-    top: 10px;
-    left: 14px;
-    font-size: 11px;
-  }
 }
 
 @media (max-width: 600px) {
