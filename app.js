@@ -14,7 +14,7 @@ video.setAttribute('autoplay', '');
 let stream = null;
 let rafId = null;
 let frameCount = 0;
-let lastBox = null;
+let lastBoxes = [];
 let cvReady = Boolean(window.__cvReady);
 const detectCanvas = document.createElement('canvas');
 const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
@@ -174,17 +174,17 @@ function detectFilmBox() {
   const ratio = boxW / boxH;
   if (ratio < 1.2 || ratio > 1.9) return null;
 
-  return {
+  return [{
     x: minX * scale,
     y: minY * scale,
     w: boxW * scale,
     h: boxH * scale,
-  };
+  }];
 }
 
-function detectFilmBoxCv() {
+function detectFilmBoxesCv() {
   if (!window.cv || !cv.Mat) return null;
-  const targetWidth = Math.min(420, canvas.width);
+  const targetWidth = Math.min(480, canvas.width);
   const scale = canvas.width / targetWidth;
   const targetHeight = Math.round(canvas.height / scale);
   detectCanvas.width = targetWidth;
@@ -194,53 +194,79 @@ function detectFilmBoxCv() {
   const src = cv.imread(detectCanvas);
   const gray = new cv.Mat();
   const blurred = new cv.Mat();
-  const edges = new cv.Mat();
+  const darkMask = new cv.Mat();
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-    cv.Canny(blurred, edges, 60, 150);
-    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    cv.threshold(blurred, darkMask, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+    cv.morphologyEx(darkMask, darkMask, cv.MORPH_CLOSE, kernel);
+    cv.findContours(darkMask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    let bestRect = null;
-    let bestArea = 0;
+    const boxes = [];
 
     for (let i = 0; i < contours.size(); i += 1) {
       const contour = contours.get(i);
       const rect = cv.boundingRect(contour);
       const area = rect.width * rect.height;
-      if (area < targetWidth * targetHeight * 0.12) continue;
+      if (area < targetWidth * targetHeight * 0.04) continue;
+      if (area > targetWidth * targetHeight * 0.9) continue;
       const ratio = rect.width / rect.height;
       if (ratio < 1.2 || ratio > 1.9) continue;
-      if (area > bestArea) {
-        bestArea = area;
-        bestRect = rect;
-      }
+
+      // Border darkness check: edge darker than center
+      const edgeRect = new cv.Rect(
+        Math.max(rect.x, 0),
+        Math.max(rect.y, 0),
+        Math.max(rect.width, 1),
+        Math.max(rect.height, 1)
+      );
+      const roi = gray.roi(edgeRect);
+      const innerRect = new cv.Rect(
+        Math.floor(rect.width * 0.18),
+        Math.floor(rect.height * 0.18),
+        Math.max(Math.floor(rect.width * 0.64), 1),
+        Math.max(Math.floor(rect.height * 0.64), 1)
+      );
+      const inner = roi.roi(innerRect);
+      const edgeMean = cv.mean(roi)[0];
+      const innerMean = cv.mean(inner)[0];
+      roi.delete();
+      inner.delete();
+
+      if (edgeMean > innerMean - 8) continue;
+
+      const score = area * (innerMean - edgeMean);
+      boxes.push({
+        x: rect.x * scale,
+        y: rect.y * scale,
+        w: rect.width * scale,
+        h: rect.height * scale,
+        score,
+      });
       contour.delete();
     }
 
-    if (!bestRect) return null;
-    return {
-      x: bestRect.x * scale,
-      y: bestRect.y * scale,
-      w: bestRect.width * scale,
-      h: bestRect.height * scale,
-    };
+    if (!boxes.length) return null;
+    boxes.sort((a, b) => b.score - a.score);
+    return boxes.slice(0, 4);
   } finally {
     src.delete();
     gray.delete();
     blurred.delete();
-    edges.delete();
+    darkMask.delete();
+    kernel.delete();
     contours.delete();
     hierarchy.delete();
   }
 }
 
-function drawGuide(box) {
+function drawGuide(boxes) {
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
-  if (!box) {
+  if (!boxes || boxes.length === 0) {
     guideCanvas.style.display = 'none';
     return;
   }
@@ -249,7 +275,9 @@ function drawGuide(box) {
   guideCtx.strokeStyle = 'rgba(255, 138, 91, 0.9)';
   guideCtx.shadowColor = 'rgba(255, 138, 91, 0.35)';
   guideCtx.shadowBlur = 12;
-  guideCtx.strokeRect(box.x, box.y, box.w, box.h);
+  boxes.forEach((box) => {
+    guideCtx.strokeRect(box.x, box.y, box.w, box.h);
+  });
   guideCtx.shadowBlur = 0;
 }
 
@@ -288,10 +316,10 @@ function renderLoop() {
   frameCount += 1;
   if (autoFrameToggle.checked && frameCount % 4 === 0) {
     if (!cvReady && window.__cvReady) cvReady = true;
-    const box = cvReady ? detectFilmBoxCv() : detectFilmBox();
-    if (box) lastBox = box;
+    const boxes = cvReady ? detectFilmBoxesCv() : detectFilmBox();
+    if (boxes) lastBoxes = boxes;
   }
-  drawGuide(autoFrameToggle.checked ? lastBox : null);
+  drawGuide(autoFrameToggle.checked ? lastBoxes : null);
 }
 
 startBtn.addEventListener('click', startCamera);
