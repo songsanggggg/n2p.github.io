@@ -4,6 +4,8 @@ const guideCanvas = document.getElementById('guide');
 const guideCtx = guideCanvas.getContext('2d');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const saveBtn = document.getElementById('saveBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
 const autoFrameToggle = document.getElementById('autoFrame');
 const detectAggressiveness = document.getElementById('detectAggressiveness');
@@ -26,6 +28,7 @@ let lockedBox = null;
 let dragState = null;
 let manualLock = false;
 let detectScale = 1;
+let paused = false;
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -67,6 +70,10 @@ async function startCamera() {
     syncCanvasSize();
     stopBtn.disabled = false;
     startBtn.disabled = true;
+    pauseBtn.disabled = false;
+    saveBtn.disabled = false;
+    paused = false;
+    pauseBtn.textContent = '暂停';
     renderLoop();
   } catch (error) {
     console.error(error);
@@ -98,6 +105,10 @@ function stopCamera() {
   rafId = null;
   startBtn.disabled = false;
   stopBtn.disabled = true;
+  pauseBtn.disabled = true;
+  saveBtn.disabled = true;
+  paused = false;
+  pauseBtn.textContent = '暂停';
   syncCanvasSize();
   drawStatus('摄像头已停止');
 }
@@ -130,9 +141,11 @@ function drawGuide(boxes) {
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
   if (!boxes || boxes.length === 0) {
     guideCanvas.style.display = 'none';
+    guideCanvas.style.pointerEvents = 'none';
     return;
   }
   guideCanvas.style.display = 'block';
+  guideCanvas.style.pointerEvents = autoFrameToggle.checked || paused ? 'auto' : 'none';
   guideCtx.lineWidth = Math.max(2, guideCanvas.width / 320);
   guideCtx.shadowBlur = 8;
   boxes.forEach((box) => {
@@ -285,13 +298,7 @@ function detectFilmFrames() {
   hierarchy.delete();
 
   boxes.sort((a, b) => b.area - a.area);
-  const kept = [];
-  for (const box of boxes) {
-    const overlap = kept.some((k) => iou(k, box) > 0.85);
-    if (!overlap) kept.push(box);
-    if (kept.length >= 20) break;
-  }
-  return kept;
+  return boxes.length > 0 ? [boxes[0]] : [];
 }
 
 function getHandleAt(x, y, box) {
@@ -336,6 +343,10 @@ function renderLoop() {
   if (guideCanvas.style.display !== 'none' && !autoFrameToggle.checked) {
     guideCanvas.style.display = 'none';
   }
+  if (paused) {
+    drawGuide(lastBoxes);
+    return;
+  }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = frame.data;
@@ -365,26 +376,24 @@ function renderLoop() {
   if (autoFrameToggle.checked) {
     if (!dragState && frameCount % 6 === 0) {
       const detected = detectFilmFrames();
-    if (detected.length > 0) {
-      lastBoxes = detected.map((box) => {
+      if (detected.length > 0) {
         const scaled = {
-          x: box.x / detectScale,
-          y: box.y / detectScale,
-          w: box.w / detectScale,
-          h: box.h / detectScale,
+          x: detected[0].x / detectScale,
+          y: detected[0].y / detectScale,
+          w: detected[0].w / detectScale,
+          h: detected[0].h / detectScale,
         };
         clampBox(scaled);
-        return scaled;
-      });
-      if (!manualLock) {
-        lockedBox = { ...lastBoxes[0] };
-      } else {
-        updateLockedInLastBoxes();
+        if (!manualLock) {
+          lockedBox = { ...scaled };
+          lastBoxes = [lockedBox];
+        } else if (lockedBox) {
+          lastBoxes = [lockedBox];
+        }
+      } else if (lastBoxes.length === 0) {
+        lockedBox = createDefaultBox();
+        lastBoxes = [lockedBox];
       }
-    } else if (lastBoxes.length === 0) {
-      lockedBox = createDefaultBox();
-      lastBoxes = [lockedBox];
-    }
     }
     drawGuide(lastBoxes);
   } else {
@@ -396,6 +405,38 @@ function renderLoop() {
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
+pauseBtn.addEventListener('click', () => {
+  if (!stream) return;
+  paused = !paused;
+  pauseBtn.textContent = paused ? '继续' : '暂停';
+  if (paused && autoFrameToggle.checked) {
+    lastBoxes = lockedBox ? [lockedBox] : lastBoxes;
+    drawGuide(lastBoxes);
+  }
+});
+
+saveBtn.addEventListener('click', () => {
+  if (!lockedBox) {
+    lockedBox = createDefaultBox();
+    lastBoxes = [lockedBox];
+  }
+  const srcCanvas = canvas;
+  const crop = document.createElement('canvas');
+  const scaleX = srcCanvas.width / canvas.width;
+  const scaleY = srcCanvas.height / canvas.height;
+  const sx = Math.max(0, lockedBox.x * scaleX);
+  const sy = Math.max(0, lockedBox.y * scaleY);
+  const sw = Math.max(1, lockedBox.w * scaleX);
+  const sh = Math.max(1, lockedBox.h * scaleY);
+  crop.width = Math.round(sw);
+  crop.height = Math.round(sh);
+  const cropCtx = crop.getContext('2d');
+  cropCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
+  const link = document.createElement('a');
+  link.download = `frame-${Date.now()}.png`;
+  link.href = crop.toDataURL('image/png');
+  link.click();
+});
 
 updateAggressivenessLabel();
 detectAggressiveness?.addEventListener('input', updateAggressivenessLabel);
@@ -416,29 +457,13 @@ autoFrameToggle.addEventListener('change', () => {
 });
 
 guideCanvas.addEventListener('pointerdown', (event) => {
-  if (!autoFrameToggle.checked) return;
+  if (!autoFrameToggle.checked && !paused) return;
   const rect = guideCanvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
 
-  let targetBox = null;
-  if (lastBoxes.length > 0) {
-    for (const box of lastBoxes) {
-      if (
-        x >= box.x &&
-        x <= box.x + box.w &&
-        y >= box.y &&
-        y <= box.y + box.h
-      ) {
-        if (!targetBox || box.w * box.h < targetBox.w * targetBox.h) {
-          targetBox = box;
-        }
-      }
-    }
-  }
-
-  if (targetBox) {
-    lockedBox = { ...targetBox };
+  if (!lockedBox && lastBoxes.length > 0) {
+    lockedBox = { ...lastBoxes[0] };
     manualLock = true;
   } else if (!lockedBox) {
     lockedBox = createDefaultBox();
@@ -507,7 +532,7 @@ guideCanvas.addEventListener('pointermove', (event) => {
   clampBox(box);
   lockedBox = box;
   manualLock = true;
-  updateLockedInLastBoxes();
+  lastBoxes = [lockedBox];
 });
 
 guideCanvas.addEventListener('pointerup', (event) => {
