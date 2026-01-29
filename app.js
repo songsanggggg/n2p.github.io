@@ -77,7 +77,7 @@ function stopCamera() {
   rafId = null;
   startBtn.disabled = false;
   stopBtn.disabled = true;
-  updateStatus('摄像头已停止');
+  updateStatus('', false);
 }
 
 function syncCanvasSize() {
