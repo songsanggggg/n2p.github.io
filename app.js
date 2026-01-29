@@ -15,6 +15,9 @@ let stream = null;
 let rafId = null;
 let frameCount = 0;
 let lastBoxes = [];
+let lockedBox = null;
+let lockedCorners = null;
+let prevGray = null;
 let cvReady = Boolean(window.__cvReady);
 const detectCanvas = document.createElement('canvas');
 const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
@@ -105,10 +108,15 @@ function syncCanvasSize() {
   }
 }
 
-function detectFilmBox() {
-  const targetWidth = Math.min(360, canvas.width);
+function getDetectConfig() {
+  const targetWidth = Math.min(480, canvas.width);
   const scale = canvas.width / targetWidth;
   const targetHeight = Math.round(canvas.height / scale);
+  return { targetWidth, targetHeight, scale };
+}
+
+function detectFilmBox() {
+  const { targetWidth, targetHeight, scale } = getDetectConfig();
   detectCanvas.width = targetWidth;
   detectCanvas.height = targetHeight;
   detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
@@ -174,25 +182,26 @@ function detectFilmBox() {
   const ratio = boxW / boxH;
   if (ratio < 1.2 || ratio > 1.9) return null;
 
-  return [{
+  return [
+    {
     x: minX * scale,
     y: minY * scale,
     w: boxW * scale,
     h: boxH * scale,
-  }];
+    },
+  ];
 }
 
 function detectFilmBoxesCv() {
   if (!window.cv || !cv.Mat) return null;
-  const targetWidth = Math.min(480, canvas.width);
-  const scale = canvas.width / targetWidth;
-  const targetHeight = Math.round(canvas.height / scale);
+  const { targetWidth, targetHeight, scale } = getDetectConfig();
   detectCanvas.width = targetWidth;
   detectCanvas.height = targetHeight;
   detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
   const src = cv.imread(detectCanvas);
   const gray = new cv.Mat();
+  const invGray = new cv.Mat();
   const blurred = new cv.Mat();
   const darkMask = new cv.Mat();
   const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
@@ -201,7 +210,8 @@ function detectFilmBoxesCv() {
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.bitwise_not(gray, invGray);
+    cv.GaussianBlur(invGray, blurred, new cv.Size(5, 5), 0);
     cv.threshold(blurred, darkMask, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
     cv.morphologyEx(darkMask, darkMask, cv.MORPH_CLOSE, kernel);
     cv.findContours(darkMask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -224,7 +234,7 @@ function detectFilmBoxesCv() {
         Math.max(rect.width, 1),
         Math.max(rect.height, 1)
       );
-      const roi = gray.roi(edgeRect);
+      const roi = invGray.roi(edgeRect);
       const innerRect = new cv.Rect(
         Math.floor(rect.width * 0.18),
         Math.floor(rect.height * 0.18),
@@ -237,7 +247,7 @@ function detectFilmBoxesCv() {
       roi.delete();
       inner.delete();
 
-      if (edgeMean > innerMean - 8) continue;
+      if (edgeMean > innerMean - 10) continue;
 
       const score = area * (innerMean - edgeMean);
       boxes.push({
@@ -256,6 +266,7 @@ function detectFilmBoxesCv() {
   } finally {
     src.delete();
     gray.delete();
+    invGray.delete();
     blurred.delete();
     darkMask.delete();
     kernel.delete();
@@ -272,13 +283,119 @@ function drawGuide(boxes) {
   }
   guideCanvas.style.display = 'block';
   guideCtx.lineWidth = Math.max(2, guideCanvas.width / 320);
-  guideCtx.strokeStyle = 'rgba(255, 138, 91, 0.9)';
-  guideCtx.shadowColor = 'rgba(255, 138, 91, 0.35)';
-  guideCtx.shadowBlur = 12;
+  guideCtx.shadowBlur = 10;
   boxes.forEach((box) => {
+    const isLocked =
+      lockedBox &&
+      Math.abs(box.x - lockedBox.x) < 1 &&
+      Math.abs(box.y - lockedBox.y) < 1;
+    guideCtx.strokeStyle = isLocked
+      ? 'rgba(77, 214, 193, 0.95)'
+      : 'rgba(255, 138, 91, 0.9)';
+    guideCtx.shadowColor = isLocked
+      ? 'rgba(77, 214, 193, 0.35)'
+      : 'rgba(255, 138, 91, 0.35)';
     guideCtx.strokeRect(box.x, box.y, box.w, box.h);
   });
   guideCtx.shadowBlur = 0;
+}
+
+function trackLockedBox() {
+  if (!cvReady || !lockedCorners || !prevGray) return null;
+  const { targetWidth, targetHeight, scale } = getDetectConfig();
+  detectCanvas.width = targetWidth;
+  detectCanvas.height = targetHeight;
+  detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+  const src = cv.imread(detectCanvas);
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+  const prevPts = cv.matFromArray(4, 1, cv.CV_32FC2, lockedCorners);
+  const nextPts = new cv.Mat();
+  const status = new cv.Mat();
+  const err = new cv.Mat();
+
+  try {
+    cv.calcOpticalFlowPyrLK(prevGray, gray, prevPts, nextPts, status, err);
+    const statusData = status.data;
+    const nextData = nextPts.data32F;
+    const good = [];
+    for (let i = 0; i < 4; i += 1) {
+      if (statusData[i] === 1) {
+        good.push(nextData[i * 2], nextData[i * 2 + 1]);
+      }
+    }
+
+    if (good.length >= 6) {
+      let minX = targetWidth;
+      let minY = targetHeight;
+      let maxX = 0;
+      let maxY = 0;
+      for (let i = 0; i < good.length; i += 2) {
+        const x = good[i];
+        const y = good[i + 1];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      lockedCorners = [
+        minX,
+        minY,
+        maxX,
+        minY,
+        maxX,
+        maxY,
+        minX,
+        maxY,
+      ];
+      lockedBox = {
+        x: minX * scale,
+        y: minY * scale,
+        w: (maxX - minX) * scale,
+        h: (maxY - minY) * scale,
+      };
+      prevGray.delete();
+      prevGray = gray.clone();
+      return lockedBox;
+    }
+  } finally {
+    src.delete();
+    gray.delete();
+    prevPts.delete();
+    nextPts.delete();
+    status.delete();
+    err.delete();
+  }
+  return null;
+}
+
+function updatePrevGray() {
+  if (!cvReady) return;
+  const { targetWidth, targetHeight } = getDetectConfig();
+  detectCanvas.width = targetWidth;
+  detectCanvas.height = targetHeight;
+  detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
+  const src = cv.imread(detectCanvas);
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  if (prevGray) prevGray.delete();
+  prevGray = gray.clone();
+  src.delete();
+  gray.delete();
+}
+
+function setLockedBox(box) {
+  if (!box) return;
+  const { scale } = getDetectConfig();
+  const minX = box.x / scale;
+  const minY = box.y / scale;
+  const maxX = (box.x + box.w) / scale;
+  const maxY = (box.y + box.h) / scale;
+  lockedCorners = [minX, minY, maxX, minY, maxX, maxY, minX, maxY];
+  lockedBox = { ...box };
+  updatePrevGray();
 }
 
 function renderLoop() {
@@ -316,8 +433,19 @@ function renderLoop() {
   frameCount += 1;
   if (autoFrameToggle.checked && frameCount % 4 === 0) {
     if (!cvReady && window.__cvReady) cvReady = true;
-    const boxes = cvReady ? detectFilmBoxesCv() : detectFilmBox();
-    if (boxes) lastBoxes = boxes;
+    if (lockedBox && cvReady) {
+      const tracked = trackLockedBox();
+      if (tracked) {
+        lastBoxes = [tracked];
+      } else {
+        lockedBox = null;
+        lockedCorners = null;
+      }
+    }
+    if (!lockedBox) {
+      const boxes = cvReady ? detectFilmBoxesCv() : detectFilmBox();
+      if (boxes) lastBoxes = boxes;
+    }
   }
   drawGuide(autoFrameToggle.checked ? lastBoxes : null);
 }
@@ -329,6 +457,41 @@ modeInputs.forEach((input) => {
   input.addEventListener('change', () => {
     if (stream) return;
   });
+});
+
+autoFrameToggle.addEventListener('change', () => {
+  if (!autoFrameToggle.checked) {
+    lastBoxes = [];
+    lockedBox = null;
+    lockedCorners = null;
+    if (prevGray) {
+      prevGray.delete();
+      prevGray = null;
+    }
+    drawGuide(null);
+  }
+});
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (!autoFrameToggle.checked || !lastBoxes.length) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+  const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+  const hit = lastBoxes.find(
+    (box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h
+  );
+  if (!hit) return;
+  if (lockedBox && hit === lockedBox) {
+    lockedBox = null;
+    lockedCorners = null;
+    if (prevGray) {
+      prevGray.delete();
+      prevGray = null;
+    }
+    return;
+  }
+  setLockedBox(hit);
+  lastBoxes = [hit];
 });
 
 window.addEventListener('beforeunload', stopCamera);
