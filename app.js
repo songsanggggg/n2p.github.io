@@ -26,11 +26,15 @@ async function startCamera() {
   updateStatus('正在请求摄像头权限...');
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
+      video: {
+        facingMode: 'environment',
+        focusMode: 'continuous',
+      },
       audio: false,
     });
     video.srcObject = stream;
     await video.play();
+    await applyContinuousFocus(stream);
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
     updateStatus('');
@@ -40,6 +44,21 @@ async function startCamera() {
   } catch (error) {
     console.error(error);
     updateStatus('无法访问摄像头，请检查权限设置。');
+  }
+}
+
+async function applyContinuousFocus(activeStream) {
+  const [track] = activeStream.getVideoTracks();
+  if (!track || !track.applyConstraints) return;
+  try {
+    await track.applyConstraints({
+      advanced: [
+        { focusMode: 'continuous' },
+        { focusDistance: 0 },
+      ],
+    });
+  } catch (error) {
+    console.warn('无法设置连续对焦:', error);
   }
 }
 
