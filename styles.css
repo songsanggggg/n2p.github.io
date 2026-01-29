@@ -207,29 +207,6 @@ canvas {
   pointer-events: none;
 }
 
-.overlay {
-  position: absolute;
-  inset: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(242, 243, 247, 0.7);
-  font-size: 18px;
-  font-weight: 600;
-  backdrop-filter: blur(6px);
-  border-radius: 20px;
-  background: rgba(10, 12, 16, 0.6);
-  transition: opacity 0.3s ease;
-}
-
-.overlay.hidden {
-  display: none;
-}
-
-.frame.is-live .overlay {
-  display: none;
-}
-
 .hints {
   background: var(--panel);
   padding: 18px;

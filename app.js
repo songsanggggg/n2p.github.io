@@ -2,7 +2,6 @@ const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const guideCanvas = document.getElementById('guide');
 const guideCtx = guideCanvas.getContext('2d');
-const statusEl = document.getElementById('status');
 const previewFrame = document.getElementById('previewFrame');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -25,15 +24,23 @@ function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
 }
 
-function updateStatus(message, visible = true) {
-  const shouldShow = visible && message.trim().length > 0;
-  statusEl.textContent = message;
-  statusEl.classList.toggle('hidden', !shouldShow);
+function drawStatus(message) {
+  if (!message) return;
+  ctx.save();
+  ctx.fillStyle = '#0b0d12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(242, 243, 247, 0.85)';
+  ctx.font = `${Math.max(18, canvas.width / 32)}px Manrope, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+  ctx.restore();
 }
 
 async function startCamera() {
   if (stream) return;
-  updateStatus('正在请求摄像头权限...');
+  syncCanvasSize();
+  drawStatus('正在请求摄像头权限...');
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -51,14 +58,14 @@ async function startCamera() {
     }
     await applyContinuousFocus(stream);
     syncCanvasSize();
-    updateStatus('', false);
     previewFrame.classList.add('is-live');
     stopBtn.disabled = false;
     startBtn.disabled = true;
     renderLoop();
   } catch (error) {
     console.error(error);
-    updateStatus('无法访问摄像头，请检查权限设置。');
+    syncCanvasSize();
+    drawStatus('无法访问摄像头，请检查权限设置。');
   }
 }
 
@@ -85,8 +92,9 @@ function stopCamera() {
   rafId = null;
   startBtn.disabled = false;
   stopBtn.disabled = true;
-  updateStatus('', false);
   previewFrame.classList.remove('is-live');
+  syncCanvasSize();
+  drawStatus('摄像头已停止');
 }
 
 function syncCanvasSize() {
@@ -287,9 +295,7 @@ stopBtn.addEventListener('click', stopCamera);
 
 modeInputs.forEach((input) => {
   input.addEventListener('change', () => {
-    if (stream) {
-      updateStatus('', false);
-    }
+    if (stream) return;
   });
 });
 
