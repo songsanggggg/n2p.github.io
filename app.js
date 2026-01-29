@@ -1,5 +1,7 @@
 const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const rawCanvas = document.getElementById('raw');
+const rawCtx = rawCanvas.getContext('2d');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -37,6 +39,8 @@ async function startCamera() {
     await applyContinuousFocus(stream);
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
+    rawCanvas.width = canvas.width;
+    rawCanvas.height = canvas.height;
     updateStatus('');
     stopBtn.disabled = false;
     startBtn.disabled = true;
@@ -75,6 +79,7 @@ function stopCamera() {
 
 function renderLoop() {
   rafId = requestAnimationFrame(renderLoop);
+  rawCtx.drawImage(video, 0, 0, rawCanvas.width, rawCanvas.height);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = frame.data;

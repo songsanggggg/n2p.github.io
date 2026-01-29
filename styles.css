@@ -149,12 +149,35 @@ button:disabled {
   align-items: start;
 }
 
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
 .frame {
   position: relative;
   background: #0e0e0f;
   border-radius: 28px;
   padding: 20px;
   box-shadow: var(--shadow);
+}
+
+.frame--plain {
+  background: #151518;
+}
+
+.frame__label {
+  position: absolute;
+  top: 14px;
+  left: 20px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(15, 15, 18, 0.7);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 canvas {
