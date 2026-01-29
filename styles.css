@@ -226,6 +226,10 @@ canvas {
   display: none;
 }
 
+.frame.is-live .overlay {
+  display: none;
+}
+
 .hints {
   background: var(--panel);
   padding: 18px;

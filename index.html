@@ -37,7 +37,7 @@
       </header>
 
       <section class="viewer">
-        <div class="frame">
+        <div class="frame" id="previewFrame">
           <div class="frame__label">反转预览</div>
           <canvas id="output" width="1280" height="720"></canvas>
           <canvas id="guide" width="1280" height="720"></canvas>
@@ -55,6 +55,14 @@
       </footer>
     </main>
 
+    <script>
+      window.Module = {
+        onRuntimeInitialized() {
+          window.__cvReady = true;
+        },
+      };
+    </script>
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

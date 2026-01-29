@@ -3,6 +3,7 @@ const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const guideCanvas = document.getElementById('guide');
 const guideCtx = guideCanvas.getContext('2d');
 const statusEl = document.getElementById('status');
+const previewFrame = document.getElementById('previewFrame');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
@@ -16,6 +17,7 @@ let stream = null;
 let rafId = null;
 let frameCount = 0;
 let lastBox = null;
+let cvReady = Boolean(window.__cvReady);
 const detectCanvas = document.createElement('canvas');
 const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -50,6 +52,7 @@ async function startCamera() {
     await applyContinuousFocus(stream);
     syncCanvasSize();
     updateStatus('', false);
+    previewFrame.classList.add('is-live');
     stopBtn.disabled = false;
     startBtn.disabled = true;
     renderLoop();
@@ -83,6 +86,7 @@ function stopCamera() {
   startBtn.disabled = false;
   stopBtn.disabled = true;
   updateStatus('', false);
+  previewFrame.classList.remove('is-live');
 }
 
 function syncCanvasSize() {
@@ -173,6 +177,62 @@ function detectFilmBox() {
   };
 }
 
+function detectFilmBoxCv() {
+  if (!window.cv || !cv.Mat) return null;
+  const targetWidth = Math.min(420, canvas.width);
+  const scale = canvas.width / targetWidth;
+  const targetHeight = Math.round(canvas.height / scale);
+  detectCanvas.width = targetWidth;
+  detectCanvas.height = targetHeight;
+  detectCtx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+  const src = cv.imread(detectCanvas);
+  const gray = new cv.Mat();
+  const blurred = new cv.Mat();
+  const edges = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+
+  try {
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.Canny(blurred, edges, 60, 150);
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let bestRect = null;
+    let bestArea = 0;
+
+    for (let i = 0; i < contours.size(); i += 1) {
+      const contour = contours.get(i);
+      const rect = cv.boundingRect(contour);
+      const area = rect.width * rect.height;
+      if (area < targetWidth * targetHeight * 0.12) continue;
+      const ratio = rect.width / rect.height;
+      if (ratio < 1.2 || ratio > 1.9) continue;
+      if (area > bestArea) {
+        bestArea = area;
+        bestRect = rect;
+      }
+      contour.delete();
+    }
+
+    if (!bestRect) return null;
+    return {
+      x: bestRect.x * scale,
+      y: bestRect.y * scale,
+      w: bestRect.width * scale,
+      h: bestRect.height * scale,
+    };
+  } finally {
+    src.delete();
+    gray.delete();
+    blurred.delete();
+    edges.delete();
+    contours.delete();
+    hierarchy.delete();
+  }
+}
+
 function drawGuide(box) {
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
   if (!box) return;
@@ -215,7 +275,8 @@ function renderLoop() {
 
   frameCount += 1;
   if (autoFrameToggle.checked && frameCount % 4 === 0) {
-    const box = detectFilmBox();
+    if (!cvReady && window.__cvReady) cvReady = true;
+    const box = cvReady ? detectFilmBoxCv() : detectFilmBox();
     if (box) lastBox = box;
   }
   drawGuide(autoFrameToggle.checked ? lastBox : null);
