@@ -243,7 +243,11 @@ function detectFilmBoxCv() {
 
 function drawGuide(box) {
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
-  if (!box) return;
+  if (!box) {
+    guideCanvas.style.display = 'none';
+    return;
+  }
+  guideCanvas.style.display = 'block';
   guideCtx.lineWidth = Math.max(2, guideCanvas.width / 320);
   guideCtx.strokeStyle = 'rgba(255, 138, 91, 0.9)';
   guideCtx.shadowColor = 'rgba(255, 138, 91, 0.35)';
@@ -255,6 +259,9 @@ function drawGuide(box) {
 function renderLoop() {
   rafId = requestAnimationFrame(renderLoop);
   syncCanvasSize();
+  if (guideCanvas.style.display !== 'none' && !autoFrameToggle.checked) {
+    guideCanvas.style.display = 'none';
+  }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = frame.data;
