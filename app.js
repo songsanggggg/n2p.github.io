@@ -2,7 +2,6 @@ const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const guideCanvas = document.getElementById('guide');
 const guideCtx = guideCanvas.getContext('2d');
-const previewFrame = document.getElementById('previewFrame');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
@@ -58,7 +57,6 @@ async function startCamera() {
     }
     await applyContinuousFocus(stream);
     syncCanvasSize();
-    previewFrame.classList.add('is-live');
     stopBtn.disabled = false;
     startBtn.disabled = true;
     renderLoop();
@@ -92,7 +90,6 @@ function stopCamera() {
   rafId = null;
   startBtn.disabled = false;
   stopBtn.disabled = true;
-  previewFrame.classList.remove('is-live');
   syncCanvasSize();
   drawStatus('摄像头已停止');
 }
