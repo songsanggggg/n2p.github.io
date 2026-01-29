@@ -36,11 +36,13 @@ async function startCamera() {
     });
     video.srcObject = stream;
     await video.play();
+    if (!video.videoWidth || !video.videoHeight) {
+      await new Promise((resolve) =>
+        video.addEventListener('loadedmetadata', resolve, { once: true })
+      );
+    }
     await applyContinuousFocus(stream);
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    rawCanvas.width = canvas.width;
-    rawCanvas.height = canvas.height;
+    syncCanvasSize();
     updateStatus('');
     stopBtn.disabled = false;
     startBtn.disabled = true;
@@ -77,8 +79,20 @@ function stopCamera() {
   updateStatus('摄像头已停止');
 }
 
+function syncCanvasSize() {
+  const width = video.videoWidth || 1280;
+  const height = video.videoHeight || 720;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+    rawCanvas.width = width;
+    rawCanvas.height = height;
+  }
+}
+
 function renderLoop() {
   rafId = requestAnimationFrame(renderLoop);
+  syncCanvasSize();
   rawCtx.drawImage(video, 0, 0, rawCanvas.width, rawCanvas.height);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
