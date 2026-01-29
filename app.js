@@ -31,6 +31,7 @@ let detectScale = 1;
 let paused = false;
 let imageCapture = null;
 let trackCapabilities = null;
+const MAX_CANVAS_WIDTH = 1280;
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -80,15 +81,18 @@ async function startCamera() {
         if (track.getCapabilities) {
           trackCapabilities = track.getCapabilities();
           if (trackCapabilities.width && trackCapabilities.height) {
-            const maxWidth = trackCapabilities.width.max;
-            const maxHeight = trackCapabilities.height.max;
+            const maxWidth = trackCapabilities.width.max || 0;
+            const maxHeight = trackCapabilities.height.max || 0;
+            // Avoid forcing the camera to its absolute max resolution — cap to a reasonable size
+            const desiredW = Math.min(maxWidth || MAX_CANVAS_WIDTH, MAX_CANVAS_WIDTH);
+            const desiredH = Math.min(maxHeight || Math.round((desiredW * 9) / 16), Math.round((desiredW * 9) / 16));
             try {
               await track.applyConstraints({
-                width: { ideal: maxWidth },
-                height: { ideal: maxHeight },
+                width: { ideal: desiredW },
+                height: { ideal: desiredH },
               });
             } catch (error) {
-              // Ignore if the device rejects max constraints.
+              // Ignore if the device rejects these constraints.
             }
           }
         }
@@ -138,13 +142,21 @@ function stopCamera() {
   saveBtn.disabled = true;
   paused = false;
   pauseBtn.textContent = '暂停';
+  // remove any live preview filter
+  canvas.style.filter = 'none';
   syncCanvasSize();
   drawStatus('摄像头已停止');
 }
 
 function syncCanvasSize() {
-  const width = video.videoWidth || 1280;
-  const height = video.videoHeight || 720;
+  let width = video.videoWidth || 1280;
+  let height = video.videoHeight || 720;
+  // Cap internal drawing buffer to a reasonable max to keep CPU usage down
+  if (width > MAX_CANVAS_WIDTH) {
+    const aspect = height / width;
+    width = MAX_CANVAS_WIDTH;
+    height = Math.max(1, Math.round(MAX_CANVAS_WIDTH * aspect));
+  }
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
@@ -385,30 +397,13 @@ function renderLoop() {
     return;
   }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = frame.data;
+  // For performance, use CSS filters for live preview. Do per-pixel processing only when saving.
   const mode = getMode();
-
   if (mode === 'bw') {
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      const inv = 255 - gray;
-      data[i] = inv;
-      data[i + 1] = inv;
-      data[i + 2] = inv;
-    }
+    canvas.style.filter = 'grayscale(1) invert(1)';
   } else {
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = 255 - data[i];
-      data[i + 1] = 255 - data[i + 1];
-      data[i + 2] = 255 - data[i + 2];
-    }
+    canvas.style.filter = 'invert(1)';
   }
-
-  ctx.putImageData(frame, 0, 0);
 
   if (autoFrameToggle.checked) {
     if (!dragState && frameCount % 6 === 0) {
@@ -495,9 +490,13 @@ saveBtn.addEventListener('click', async () => {
   }
 
   if (frameSource === video) {
+    // Use the visible (possibly scaled) `canvas` contents for cropping to avoid
+    // coordinate mismatches between the guide overlay and the saved image.
     srcCanvas.width = sourceW;
     srcCanvas.height = sourceH;
-    srcCtx.drawImage(video, 0, 0, sourceW, sourceH);
+    // Draw the current visual canvas into the source canvas. We'll apply pixel
+    // processing (invert/grayscale) here before cropping.
+    srcCtx.drawImage(canvas, 0, 0, sourceW, sourceH);
   }
   const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
   const data = frame.data;
