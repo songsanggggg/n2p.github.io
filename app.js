@@ -19,8 +19,9 @@ function getMode() {
 }
 
 function updateStatus(message, visible = true) {
+  const shouldShow = visible && message.trim().length > 0;
   statusEl.textContent = message;
-  statusEl.classList.toggle('hidden', !visible);
+  statusEl.classList.toggle('hidden', !shouldShow);
 }
 
 async function startCamera() {
@@ -43,7 +44,7 @@ async function startCamera() {
     }
     await applyContinuousFocus(stream);
     syncCanvasSize();
-    updateStatus('');
+    updateStatus('', false);
     stopBtn.disabled = false;
     startBtn.disabled = true;
     renderLoop();
@@ -127,7 +128,7 @@ stopBtn.addEventListener('click', stopCamera);
 modeInputs.forEach((input) => {
   input.addEventListener('change', () => {
     if (stream) {
-      updateStatus('');
+      updateStatus('', false);
     }
   });
 });
