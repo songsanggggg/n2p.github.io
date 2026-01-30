@@ -7,7 +7,8 @@ const stopBtn = document.getElementById('stopBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const saveBtn = document.getElementById('saveBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
-const autoFrameToggle = document.getElementById('autoFrame');
+const frameCountSelect = document.getElementById('frameCount');
+const reDetectBtn = document.getElementById('reDetectBtn');
 const detectAggressiveness = document.getElementById('detectAggressiveness');
 const detectAggressivenessValue = document.getElementById(
   'detectAggressivenessValue'
@@ -29,7 +30,6 @@ let lastBoxes = [];
 let lockedBox = null;
 let selectedIndex = -1;
 let dragState = null;
-let manualLock = false;
 let detectScale = 1;
 let paused = false;
 let pausedFrameCanvas = null;
@@ -131,6 +131,7 @@ async function startCamera() {
     startBtn.disabled = true;
     pauseBtn.disabled = false;
     saveBtn.disabled = true;
+    reDetectBtn.disabled = true;
     paused = false;
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
@@ -168,6 +169,7 @@ function stopCamera() {
   stopBtn.disabled = true;
   pauseBtn.disabled = true;
   saveBtn.disabled = true;
+  reDetectBtn.disabled = true;
   paused = false;
   pausedFrameCanvas = null;
   pausedFrameMeta = null;
@@ -251,11 +253,11 @@ function drawGuide(boxes) {
 }
 
 function getHandleSize() {
-  return Math.max(20, guideCanvas.width / 26);
+  return Math.max(30, guideCanvas.width / 18);
 }
 
 function getHandleHitbox() {
-  return Math.max(34, guideCanvas.width / 16);
+  return Math.max(52, guideCanvas.width / 12);
 }
 
 function lerp(start, end, t) {
@@ -379,7 +381,7 @@ function detectFilmFrames(source) {
   src.delete();
 
   boxes.sort((a, b) => b.area - a.area);
-  return boxes.slice(0, 8);
+  return boxes.slice(0, getDesiredFrameCount());
 }
 
 function getHandleAt(x, y, box) {
@@ -458,6 +460,7 @@ pauseBtn.addEventListener('click', async () => {
   paused = !paused;
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
+  reDetectBtn.disabled = !paused;
   if (paused) {
     // Immediately freeze the current preview to avoid a white flash while capturing.
     const quickFreeze = document.createElement('canvas');
@@ -471,25 +474,7 @@ pauseBtn.addEventListener('click', async () => {
     await applyTrackConstraints(captureConstraints);
     pausedFrameMeta = await capturePausedFrame();
     pausedFrameCanvas = pausedFrameMeta.canvas;
-    const detected = detectFilmFrames(pausedFrameCanvas);
-    const scaledBoxes = detected.map((box) => ({
-      x: box.x / detectScale,
-      y: box.y / detectScale,
-      w: box.w / detectScale,
-      h: box.h / detectScale,
-    }));
-    scaledBoxes.forEach(clampBox);
-    if (scaledBoxes.length === 0) {
-      const fallback = createDefaultBox();
-      lastBoxes = [fallback];
-      selectedIndex = 0;
-      lockedBox = { ...fallback };
-    } else {
-      lastBoxes = scaledBoxes;
-      selectedIndex = 0;
-      lockedBox = { ...lastBoxes[selectedIndex] };
-    }
-    drawGuide(lastBoxes);
+    runDetectionOnPaused();
     requestAnimationFrame(() => {
       canvas.style.opacity = '1';
       guideCanvas.style.opacity = '1';
@@ -571,14 +556,14 @@ modeInputs.forEach((input) => {
   });
 });
 
-autoFrameToggle.addEventListener('change', () => {
-  if (!autoFrameToggle.checked) {
-    lastBoxes = [];
-    lockedBox = null;
-    manualLock = false;
-    selectedIndex = -1;
-    drawGuide(null);
-  }
+frameCountSelect?.addEventListener('change', () => {
+  if (!paused) return;
+  runDetectionOnPaused();
+});
+
+reDetectBtn?.addEventListener('click', () => {
+  if (!paused) return;
+  runDetectionOnPaused();
 });
 
 guideCanvas.addEventListener('pointerdown', (event) => {
@@ -609,7 +594,6 @@ guideCanvas.addEventListener('pointerdown', (event) => {
   if (hitIndex < 0) return;
   selectedIndex = hitIndex;
   lockedBox = { ...lastBoxes[selectedIndex] };
-  manualLock = true;
 
   const handle = getHandleAt(x, y, lockedBox);
   if (handle) {
@@ -653,7 +637,6 @@ guideCanvas.addEventListener('pointermove', (event) => {
 
   clampBox(box);
   lockedBox = box;
-  manualLock = true;
   if (selectedIndex >= 0) {
     lastBoxes[selectedIndex] = { ...lockedBox };
   }
@@ -670,6 +653,34 @@ guideCanvas.addEventListener('pointercancel', () => {
 });
 
 window.addEventListener('beforeunload', stopCamera);
+
+function getDesiredFrameCount() {
+  const value = Number(frameCountSelect?.value || 3);
+  return Math.max(1, Math.min(8, value));
+}
+
+function runDetectionOnPaused() {
+  if (!paused || !pausedFrameCanvas) return;
+  const detected = detectFilmFrames(pausedFrameCanvas);
+  const scaledBoxes = detected.map((box) => ({
+    x: box.x / detectScale,
+    y: box.y / detectScale,
+    w: box.w / detectScale,
+    h: box.h / detectScale,
+  }));
+  scaledBoxes.forEach(clampBox);
+  if (scaledBoxes.length === 0) {
+    const fallback = createDefaultBox();
+    lastBoxes = [fallback];
+    selectedIndex = 0;
+    lockedBox = { ...fallback };
+  } else {
+    lastBoxes = scaledBoxes;
+    selectedIndex = 0;
+    lockedBox = { ...lastBoxes[selectedIndex] };
+  }
+  drawGuide(lastBoxes);
+}
 
 function ensureDetectBuffers() {
   if (!window.__cvReady) return null;

@@ -74,7 +74,7 @@ h1 {
   color: var(--ink);
 }
 
-.toggle {
+.select {
   display: inline-flex;
   gap: 8px;
   align-items: center;
@@ -83,11 +83,16 @@ h1 {
   border: 1px solid var(--line);
   font-size: 13px;
   color: var(--muted);
-  cursor: pointer;
 }
 
-.toggle input {
-  accent-color: var(--accent);
+.select select {
+  appearance: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
 }
 
 .slider {
@@ -174,7 +179,7 @@ button:disabled {
   }
 
   .modes,
-  .toggle,
+  .select,
   .actions {
     width: 100%;
     justify-content: space-between;
