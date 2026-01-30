@@ -561,10 +561,37 @@ saveBtn.addEventListener('click', async () => {
   }
   srcCtx.putImageData(frame, 0, 0);
   const crop = document.createElement('canvas');
-  const scaleX = srcCanvas.width / canvas.width;
-  const scaleY = srcCanvas.height / canvas.height;
-  const sx = Math.max(0, lockedBox.x * scaleX);
-  const sy = Math.max(0, lockedBox.y * scaleY);
+  const previewAspect = canvas.width / canvas.height;
+  const sourceAspect = srcCanvas.width / srcCanvas.height;
+  let sourceRect = {
+    x: 0,
+    y: 0,
+    w: srcCanvas.width,
+    h: srcCanvas.height,
+  };
+  if (Math.abs(previewAspect - sourceAspect) > 0.01) {
+    if (sourceAspect > previewAspect) {
+      const cropW = srcCanvas.height * previewAspect;
+      sourceRect = {
+        x: (srcCanvas.width - cropW) / 2,
+        y: 0,
+        w: cropW,
+        h: srcCanvas.height,
+      };
+    } else {
+      const cropH = srcCanvas.width / previewAspect;
+      sourceRect = {
+        x: 0,
+        y: (srcCanvas.height - cropH) / 2,
+        w: srcCanvas.width,
+        h: cropH,
+      };
+    }
+  }
+  const scaleX = sourceRect.w / canvas.width;
+  const scaleY = sourceRect.h / canvas.height;
+  const sx = Math.max(0, sourceRect.x + lockedBox.x * scaleX);
+  const sy = Math.max(0, sourceRect.y + lockedBox.y * scaleY);
   const sw = Math.max(1, lockedBox.w * scaleX);
   const sh = Math.max(1, lockedBox.h * scaleY);
   crop.width = Math.round(sw);
