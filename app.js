@@ -492,6 +492,10 @@ pauseBtn.addEventListener('click', async () => {
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
   reDetectBtn.disabled = !paused;
+  stopBtn.disabled = paused || !stream;
+  if (paused) {
+    closeMorePanel();
+  }
   if (paused) {
     // Immediately freeze the current preview to avoid a white flash while capturing.
     const quickFreeze = document.createElement('canvas');

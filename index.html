@@ -21,9 +21,25 @@
 
         <div id="morePanel" class="more-panel" aria-hidden="true">
           <div class="control-grid">
-            <button id="startBtn" class="pill primary">开启</button>
-            <button id="stopBtn" class="pill ghost" disabled>关闭</button>
-            <button id="reDetectBtn" class="pill subtle" disabled>重新识别</button>
+            <div class="control-stack">
+              <button id="startBtn" class="pill primary">开启</button>
+              <button id="stopBtn" class="pill ghost" disabled>关闭</button>
+              <button id="reDetectBtn" class="pill subtle" disabled>重新识别</button>
+            </div>
+            <label class="slider volume-slider">
+              <span>识别强度</span>
+              <div class="slider-track">
+                <input
+                  type="range"
+                  id="detectAggressiveness"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="70"
+                />
+              </div>
+              <em id="detectAggressivenessValue">70%</em>
+            </label>
             <fieldset class="mode-pill" role="radiogroup" aria-label="负片模式">
               <label>
                 <input type="radio" name="mode" value="color" checked />
@@ -34,18 +50,6 @@
                 <span>黑白</span>
               </label>
             </fieldset>
-            <label class="slider">
-              <span>识别强度</span>
-              <input
-                type="range"
-                id="detectAggressiveness"
-                min="0"
-                max="100"
-                step="1"
-                value="70"
-              />
-              <em id="detectAggressivenessValue">70%</em>
-            </label>
           </div>
         </div>
 

@@ -113,13 +113,23 @@ body {
 
 .control-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
+  align-items: start;
+}
+
+.control-grid .mode-pill {
+  grid-column: span 2;
+  justify-content: space-between;
+}
+
+.control-stack {
+  display: grid;
+  gap: 10px;
 }
 
 .control-grid .slider,
 .control-grid .mode-pill {
-  grid-column: span 2;
   justify-content: space-between;
 }
 
@@ -225,16 +235,75 @@ button:disabled {
   backdrop-filter: blur(12px);
 }
 
-.slider input[type='range'] {
-  accent-color: var(--accent-strong);
-  width: 140px;
-}
-
 .slider em {
   font-style: normal;
   color: var(--ink);
   min-width: 44px;
   text-align: right;
+}
+
+.volume-slider {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  height: 190px;
+  gap: 8px;
+}
+
+.volume-slider span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.volume-slider .slider-track {
+  position: relative;
+  width: 46px;
+  height: 120px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  display: grid;
+  place-items: center;
+}
+
+.volume-slider input[type='range'] {
+  appearance: none;
+  width: 120px;
+  height: 28px;
+  transform: rotate(-90deg);
+  background: transparent;
+}
+
+.volume-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.volume-slider input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  margin-top: -9px;
+}
+
+.volume-slider input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.volume-slider input[type='range']::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
 .shutter {
@@ -283,9 +352,8 @@ button:disabled {
 }
 
 @media (max-width: 600px) {
-  .slider {
-    width: 100%;
-    justify-content: space-between;
+  .volume-slider {
+    height: 170px;
   }
 
   .shutter {
