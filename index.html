@@ -56,6 +56,12 @@
         },
       };
     </script>
+    <script>
+      if (!sessionStorage.getItem('autoRefreshed')) {
+        sessionStorage.setItem('autoRefreshed', '1');
+        location.reload();
+      }
+    </script>
     <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
     <script src="app.js"></script>
   </body>

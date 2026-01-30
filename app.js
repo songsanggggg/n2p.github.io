@@ -683,13 +683,14 @@ function runDetectionOnPaused() {
     h: box.h / detectScale,
   }));
   scaledBoxes.forEach(clampBox);
-  if (scaledBoxes.length === 0) {
+  const singleBox = scaledBoxes.length > 0 ? [scaledBoxes[0]] : [];
+  if (singleBox.length === 0) {
     const fallback = createDefaultBox();
     lastBoxes = [fallback];
     selectedIndex = 0;
     lockedBox = { ...fallback };
   } else {
-    lastBoxes = scaledBoxes;
+    lastBoxes = singleBox;
     selectedIndex = 0;
     lockedBox = { ...lastBoxes[selectedIndex] };
   }
