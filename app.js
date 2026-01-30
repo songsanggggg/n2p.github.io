@@ -51,8 +51,7 @@ const PREVIEW_MAX_STREAM_WIDTH = 1920;
 const DETECT_INTERVAL_MS = 140;
 let lastDetectTime = 0;
 let detectBuffers = null;
-const COLORIZE_MODEL_URL =
-  'https://huggingface.co/thookham/DeOldify-on-Browser/resolve/main/deoldify-quant.onnx';
+const COLORIZE_MODEL_URL = './models/deoldify-quant.onnx';
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -938,12 +937,23 @@ async function fetchModelWithProgress(url) {
   const reader = response.body.getReader();
   const chunks = [];
   let received = 0;
+  const start = performance.now();
+  let lastUpdate = start;
+  let lastBytes = 0;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value);
     received += value.length;
+    const now = performance.now();
+    const elapsed = Math.max(0.001, (now - lastUpdate) / 1000);
+    const bytesDelta = received - lastBytes;
+    const speed = bytesDelta / elapsed;
     updateModelProgress(received, contentLength);
+    updateModelSpeed(speed);
+    updateModelSize(received, contentLength);
+    lastUpdate = now;
+    lastBytes = received;
   }
   const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
   const buffer = new Uint8Array(totalLength);
@@ -953,6 +963,9 @@ async function fetchModelWithProgress(url) {
     offset += chunk.length;
   }
   updateModelProgress(totalLength, totalLength);
+  const totalElapsed = Math.max(0.001, (performance.now() - start) / 1000);
+  updateModelSpeed(totalLength / totalElapsed);
+  updateModelSize(totalLength, totalLength);
   return buffer.buffer;
 }
 
@@ -961,6 +974,8 @@ function showModelProgress(visible) {
   modelProgress.classList.toggle('is-visible', visible);
   if (!visible) {
     updateModelProgress(0, 100);
+    updateModelSpeed(0);
+    updateModelSize(0, 0);
     setModelStatus('模型加载进度');
   }
 }
@@ -980,6 +995,27 @@ function setModelStatus(text) {
   if (label) {
     label.textContent = text;
   }
+}
+
+function updateModelSpeed(bytesPerSec) {
+  if (!modelProgress) return;
+  const speedEl = modelProgress.querySelector('#modelSpeed');
+  if (!speedEl) return;
+  if (!bytesPerSec) {
+    speedEl.textContent = '0 MB/s';
+    return;
+  }
+  const mbps = bytesPerSec / (1024 * 1024);
+  speedEl.textContent = `${mbps.toFixed(2)} MB/s`;
+}
+
+function updateModelSize(loaded, total) {
+  if (!modelProgress) return;
+  const sizeEl = modelProgress.querySelector('#modelSize');
+  if (!sizeEl) return;
+  const loadedMb = (loaded / (1024 * 1024)).toFixed(1);
+  const totalMb = total ? (total / (1024 * 1024)).toFixed(1) : '0.0';
+  sizeEl.textContent = `${loadedMb} / ${totalMb} MB`;
 }
 
 function downloadCanvasAsImage(canvasEl, prefix) {
