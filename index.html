@@ -39,15 +39,6 @@
             <button id="stopBtn" class="ghost" disabled>停止</button>
             <button id="pauseBtn" class="ghost" disabled>暂停</button>
             <button id="saveBtn" class="ghost" disabled>保存</button>
-            <button id="loadModelBtn" class="ghost">加载模型</button>
-            <button id="colorizeBtn" class="ghost" disabled>上色并下载</button>
-          </div>
-          <div class="progress" id="modelProgress" aria-live="polite">
-            <span>模型加载进度</span>
-            <progress value="0" max="100"></progress>
-            <em>0%</em>
-            <small id="modelSpeed">0 MB/s</small>
-            <small id="modelSize">0 / 0 MB</small>
           </div>
         </div>
       </header>
@@ -72,7 +63,6 @@
       }
     </script>
     <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
