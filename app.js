@@ -329,6 +329,8 @@ function detectFilmFrames(source) {
 
   const src = cv.imread(detectCanvas);
   cv.cvtColor(src, buffers.gray, cv.COLOR_RGBA2GRAY);
+  // Boost contrast to make dark borders stand out.
+  cv.normalize(buffers.gray, buffers.gray, 0, 255, cv.NORM_MINMAX);
   cv.GaussianBlur(buffers.gray, buffers.blur, new cv.Size(5, 5), 0);
   cv.Canny(buffers.blur, buffers.edges, params.cannyLow, params.cannyHigh);
   cv.dilate(
@@ -578,6 +580,28 @@ guideCanvas.addEventListener('pointerdown', (event) => {
     lastBoxes = [fallback];
     selectedIndex = 0;
     lockedBox = { ...fallback };
+  }
+
+  if (selectedIndex >= 0 && lastBoxes[selectedIndex]) {
+    const current = lastBoxes[selectedIndex];
+    const handle = getHandleAt(x, y, current);
+    if (handle) {
+      lockedBox = { ...current };
+      dragState = { type: handle.id, startX: x, startY: y, box: { ...lockedBox } };
+      guideCanvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (
+      x >= current.x &&
+      x <= current.x + current.w &&
+      y >= current.y &&
+      y <= current.y + current.h
+    ) {
+      lockedBox = { ...current };
+      dragState = { type: 'move', startX: x, startY: y, box: { ...lockedBox } };
+      guideCanvas.setPointerCapture(event.pointerId);
+      return;
+    }
   }
   let hitIndex = -1;
   for (let i = 0; i < lastBoxes.length; i += 1) {
