@@ -6,6 +6,7 @@ const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const saveBtn = document.getElementById('saveBtn');
+const colorizeBtn = document.getElementById('colorizeBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
 const reDetectBtn = document.getElementById('reDetectBtn');
 const detectAggressiveness = document.getElementById('detectAggressiveness');
@@ -38,11 +39,16 @@ let trackCapabilities = null;
 let activeTrack = null;
 let previewConstraints = null;
 let captureConstraints = null;
+let colorizeSession = null;
+let colorizeRunning = false;
+let colorizedFrameCanvas = null;
 const MAX_CANVAS_WIDTH = 1280;
 const PREVIEW_MAX_STREAM_WIDTH = 1920;
 const DETECT_INTERVAL_MS = 140;
 let lastDetectTime = 0;
 let detectBuffers = null;
+const COLORIZE_MODEL_URL =
+  'https://huggingface.co/thookham/DeOldify-on-Browser/resolve/main/deoldify-quant.onnx';
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -131,6 +137,7 @@ async function startCamera() {
     pauseBtn.disabled = false;
     saveBtn.disabled = true;
     reDetectBtn.disabled = true;
+    colorizeBtn.disabled = true;
     paused = false;
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
@@ -169,6 +176,7 @@ function stopCamera() {
   pauseBtn.disabled = true;
   saveBtn.disabled = true;
   reDetectBtn.disabled = true;
+  colorizeBtn.disabled = true;
   paused = false;
   pausedFrameCanvas = null;
   pausedFrameMeta = null;
@@ -429,14 +437,19 @@ function renderLoop() {
     guideCanvas.style.display = 'none';
   }
   if (paused) {
-    const mode = getMode();
-    if (mode === 'bw') {
-      canvas.style.filter = 'grayscale(1) invert(1)';
+    if (colorizedFrameCanvas) {
+      canvas.style.filter = 'none';
+      ctx.drawImage(colorizedFrameCanvas, 0, 0, canvas.width, canvas.height);
     } else {
-      canvas.style.filter = 'invert(1)';
-    }
-    if (pausedFrameCanvas) {
-      ctx.drawImage(pausedFrameCanvas, 0, 0, canvas.width, canvas.height);
+      const mode = getMode();
+      if (mode === 'bw') {
+        canvas.style.filter = 'grayscale(1) invert(1)';
+      } else {
+        canvas.style.filter = 'invert(1)';
+      }
+      if (pausedFrameCanvas) {
+        ctx.drawImage(pausedFrameCanvas, 0, 0, canvas.width, canvas.height);
+      }
     }
     drawGuide(lastBoxes);
     return;
@@ -463,6 +476,7 @@ pauseBtn.addEventListener('click', async () => {
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
   reDetectBtn.disabled = !paused;
+  colorizeBtn.disabled = !paused;
   if (paused) {
     // Immediately freeze the current preview to avoid a white flash while capturing.
     const quickFreeze = document.createElement('canvas');
@@ -471,6 +485,7 @@ pauseBtn.addEventListener('click', async () => {
     quickFreeze.getContext('2d').drawImage(canvas, 0, 0);
     pausedFrameCanvas = quickFreeze;
     pausedFrameMeta = { canvas: quickFreeze, width: canvas.width, height: canvas.height };
+    colorizedFrameCanvas = null;
     canvas.style.opacity = '0.2';
     guideCanvas.style.opacity = '0.2';
     await applyTrackConstraints(captureConstraints);
@@ -484,6 +499,7 @@ pauseBtn.addEventListener('click', async () => {
   } else {
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
+    colorizedFrameCanvas = null;
     lastBoxes = [];
     lockedBox = null;
     selectedIndex = -1;
@@ -499,34 +515,36 @@ saveBtn.addEventListener('click', async () => {
   lockedBox = { ...lastBoxes[selectedIndex] };
   const srcCanvas = document.createElement('canvas');
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-  const sourceCanvas = pausedFrameCanvas || canvas;
-  const sourceW = pausedFrameMeta?.width || sourceCanvas.width;
-  const sourceH = pausedFrameMeta?.height || sourceCanvas.height;
+  const sourceCanvas = colorizedFrameCanvas || pausedFrameCanvas || canvas;
+  const sourceW = sourceCanvas.width;
+  const sourceH = sourceCanvas.height;
   srcCanvas.width = sourceW;
   srcCanvas.height = sourceH;
   srcCtx.drawImage(sourceCanvas, 0, 0, sourceW, sourceH);
-  const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
-  const data = frame.data;
-  const mode = getMode();
-  if (mode === 'bw') {
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      const inv = 255 - gray;
-      data[i] = inv;
-      data[i + 1] = inv;
-      data[i + 2] = inv;
+  if (!colorizedFrameCanvas) {
+    const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
+    const data = frame.data;
+    const mode = getMode();
+    if (mode === 'bw') {
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        const inv = 255 - gray;
+        data[i] = inv;
+        data[i + 1] = inv;
+        data[i + 2] = inv;
+      }
+    } else {
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = 255 - data[i];
+        data[i + 1] = 255 - data[i + 1];
+        data[i + 2] = 255 - data[i + 2];
+      }
     }
-  } else {
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = 255 - data[i];
-      data[i + 1] = 255 - data[i + 1];
-      data[i + 2] = 255 - data[i + 2];
-    }
+    srcCtx.putImageData(frame, 0, 0);
   }
-  srcCtx.putImageData(frame, 0, 0);
   const crop = document.createElement('canvas');
   const scaleX = srcCanvas.width / canvas.width;
   const scaleY = srcCanvas.height / canvas.height;
@@ -561,6 +579,21 @@ modeInputs.forEach((input) => {
 reDetectBtn?.addEventListener('click', () => {
   if (!paused) return;
   runDetectionOnPaused();
+});
+
+colorizeBtn?.addEventListener('click', async () => {
+  if (!paused || colorizeRunning) return;
+  if (selectedIndex < 0 || !lastBoxes[selectedIndex] || !pausedFrameCanvas) return;
+  colorizeRunning = true;
+  colorizeBtn.disabled = true;
+  try {
+    await colorizeSelectedBox();
+  } catch (error) {
+    console.error('Colorize failed:', error);
+  } finally {
+    colorizeRunning = false;
+    colorizeBtn.disabled = !paused;
+  }
 });
 
 guideCanvas.addEventListener('pointerdown', (event) => {
@@ -675,6 +708,7 @@ window.addEventListener('beforeunload', stopCamera);
 
 function runDetectionOnPaused() {
   if (!paused || !pausedFrameCanvas) return;
+  colorizedFrameCanvas = null;
   const detected = detectFilmFrames(pausedFrameCanvas);
   const scaledBoxes = detected.map((box) => ({
     x: box.x / detectScale,
@@ -695,6 +729,164 @@ function runDetectionOnPaused() {
     lockedBox = { ...lastBoxes[selectedIndex] };
   }
   drawGuide(lastBoxes);
+}
+
+async function loadColorizeSession() {
+  if (colorizeSession) return colorizeSession;
+  if (!window.ort) {
+    throw new Error('onnxruntime-web not available');
+  }
+  ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
+  ort.env.wasm.simd = true;
+  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+  const providers = [];
+  if (ort.env.webgpu?.available) {
+    providers.push('webgpu');
+  }
+  providers.push('wasm');
+  colorizeSession = await ort.InferenceSession.create(COLORIZE_MODEL_URL, {
+    executionProviders: providers,
+  });
+  return colorizeSession;
+}
+
+function getModelSize(session) {
+  const inputName = session.inputNames[0];
+  const meta = session.inputMetadata[inputName];
+  const dims = meta?.dimensions || [];
+  const height = Number(dims[2]) || 256;
+  const width = Number(dims[3]) || 256;
+  return { width, height, inputName };
+}
+
+function imageDataToTensor(imageData, width, height, grayscale = false) {
+  const { data } = imageData;
+  const floatData = new Float32Array(1 * 3 * width * height);
+  let offsetR = 0;
+  let offsetG = width * height;
+  let offsetB = width * height * 2;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+    if (grayscale) {
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray;
+      g = gray;
+      b = gray;
+    }
+    floatData[offsetR++] = r / 255;
+    floatData[offsetG++] = g / 255;
+    floatData[offsetB++] = b / 255;
+  }
+  return new ort.Tensor('float32', floatData, [1, 3, height, width]);
+}
+
+function tensorToImageData(tensor, width, height) {
+  const output = tensor.data;
+  const outImage = new ImageData(width, height);
+  if (tensor.dims.length === 4 && tensor.dims[1] === 3) {
+    const hw = width * height;
+    let rIndex = 0;
+    let gIndex = hw;
+    let bIndex = hw * 2;
+    for (let i = 0; i < outImage.data.length; i += 4) {
+      outImage.data[i] = Math.max(0, Math.min(255, output[rIndex++] * 255));
+      outImage.data[i + 1] = Math.max(0, Math.min(255, output[gIndex++] * 255));
+      outImage.data[i + 2] = Math.max(0, Math.min(255, output[bIndex++] * 255));
+      outImage.data[i + 3] = 255;
+    }
+  } else if (tensor.dims.length === 4 && tensor.dims[3] === 3) {
+    let idx = 0;
+    for (let i = 0; i < outImage.data.length; i += 4) {
+      outImage.data[i] = Math.max(0, Math.min(255, output[idx++] * 255));
+      outImage.data[i + 1] = Math.max(0, Math.min(255, output[idx++] * 255));
+      outImage.data[i + 2] = Math.max(0, Math.min(255, output[idx++] * 255));
+      outImage.data[i + 3] = 255;
+    }
+  } else {
+    throw new Error('Unexpected output shape');
+  }
+  return outImage;
+}
+
+async function colorizeSelectedBox() {
+  const session = await loadColorizeSession();
+  const box = lastBoxes[selectedIndex];
+  const positiveCanvas = createPositiveFrameCanvas();
+  const srcCanvas = positiveCanvas;
+  const scaleX = srcCanvas.width / canvas.width;
+  const scaleY = srcCanvas.height / canvas.height;
+  const sx = Math.max(0, box.x * scaleX);
+  const sy = Math.max(0, box.y * scaleY);
+  const sw = Math.max(1, box.w * scaleX);
+  const sh = Math.max(1, box.h * scaleY);
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = Math.round(sw);
+  cropCanvas.height = Math.round(sh);
+  const cropCtx = cropCanvas.getContext('2d');
+  cropCtx.drawImage(
+    srcCanvas,
+    sx,
+    sy,
+    sw,
+    sh,
+    0,
+    0,
+    cropCanvas.width,
+    cropCanvas.height
+  );
+
+  const { width: modelW, height: modelH, inputName } = getModelSize(session);
+  const inputCanvas = document.createElement('canvas');
+  inputCanvas.width = modelW;
+  inputCanvas.height = modelH;
+  const inputCtx = inputCanvas.getContext('2d');
+  inputCtx.drawImage(cropCanvas, 0, 0, modelW, modelH);
+  const inputImage = inputCtx.getImageData(0, 0, modelW, modelH);
+  const inputTensor = imageDataToTensor(inputImage, modelW, modelH, true);
+  const feeds = { [inputName]: inputTensor };
+  const results = await session.run(feeds);
+  const outputName = session.outputNames[0];
+  const outputTensor = results[outputName];
+  const outputImage = tensorToImageData(outputTensor, modelW, modelH);
+
+  const outputCanvas = document.createElement('canvas');
+  outputCanvas.width = modelW;
+  outputCanvas.height = modelH;
+  const outputCtx = outputCanvas.getContext('2d');
+  outputCtx.putImageData(outputImage, 0, 0);
+
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = cropCanvas.width;
+  finalCanvas.height = cropCanvas.height;
+  const finalCtx = finalCanvas.getContext('2d');
+  finalCtx.drawImage(outputCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
+
+  colorizedFrameCanvas = document.createElement('canvas');
+  colorizedFrameCanvas.width = srcCanvas.width;
+  colorizedFrameCanvas.height = srcCanvas.height;
+  const colorizedCtx = colorizedFrameCanvas.getContext('2d');
+  colorizedCtx.drawImage(srcCanvas, 0, 0);
+  colorizedCtx.drawImage(finalCanvas, sx, sy);
+}
+
+function createPositiveFrameCanvas() {
+  if (!pausedFrameCanvas) return null;
+  const baseCanvas = document.createElement('canvas');
+  baseCanvas.width = pausedFrameCanvas.width;
+  baseCanvas.height = pausedFrameCanvas.height;
+  const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
+  baseCtx.drawImage(pausedFrameCanvas, 0, 0);
+  const image = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255 - data[i];
+    data[i + 1] = 255 - data[i + 1];
+    data[i + 2] = 255 - data[i + 2];
+  }
+  baseCtx.putImageData(image, 0, 0);
+  return baseCanvas;
 }
 
 function pickDistinctBoxes(boxes, maxCount) {
