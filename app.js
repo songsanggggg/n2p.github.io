@@ -605,14 +605,27 @@ colorizeBtn?.addEventListener('click', async () => {
 
 loadModelBtn?.addEventListener('click', async () => {
   if (modelLoaded || modelLoading) return;
+  if (!window.ort) {
+    showModelProgress(true);
+    setModelStatus('加载失败：onnxruntime 未就绪');
+    return;
+  }
+  if (location.protocol === 'file:') {
+    showModelProgress(true);
+    setModelStatus('加载失败：请使用本地 HTTP 服务');
+    return;
+  }
   modelLoading = true;
   loadModelBtn.disabled = true;
   showModelProgress(true);
+  setModelStatus('模型下载中…');
   try {
     await loadColorizeSessionWithProgress();
     modelLoaded = true;
+    setModelStatus('模型已就绪');
   } catch (error) {
     console.error('Model load failed:', error);
+    setModelStatus('加载失败，请重试');
   } finally {
     modelLoading = false;
     loadModelBtn.disabled = modelLoaded;
@@ -948,6 +961,7 @@ function showModelProgress(visible) {
   modelProgress.classList.toggle('is-visible', visible);
   if (!visible) {
     updateModelProgress(0, 100);
+    setModelStatus('模型加载进度');
   }
 }
 
@@ -958,6 +972,14 @@ function updateModelProgress(loaded, total) {
   const percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
   progressEl.value = percent;
   labelEl.textContent = `${percent}%`;
+}
+
+function setModelStatus(text) {
+  if (!modelProgress) return;
+  const label = modelProgress.querySelector('span');
+  if (label) {
+    label.textContent = text;
+  }
 }
 
 function downloadCanvasAsImage(canvasEl, prefix) {
