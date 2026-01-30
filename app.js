@@ -253,11 +253,11 @@ function drawGuide(boxes) {
 }
 
 function getHandleSize() {
-  return Math.max(30, guideCanvas.width / 18);
+  return Math.max(20, guideCanvas.width / 26);
 }
 
 function getHandleHitbox() {
-  return Math.max(52, guideCanvas.width / 12);
+  return Math.max(60, guideCanvas.width / 10);
 }
 
 function lerp(start, end, t) {
@@ -342,17 +342,18 @@ function detectFilmFrames(source) {
     buffers.edges,
     buffers.contours,
     buffers.hierarchy,
-    cv.RETR_EXTERNAL,
+    cv.RETR_LIST,
     cv.CHAIN_APPROX_SIMPLE
   );
 
   const boxes = [];
   const minArea =
     detectCanvas.width * detectCanvas.height * params.minAreaRatio;
+  const maxArea = detectCanvas.width * detectCanvas.height * 0.95;
   for (let i = 0; i < buffers.contours.size(); i += 1) {
     const cnt = buffers.contours.get(i);
     const area = cv.contourArea(cnt);
-    if (area < minArea) {
+    if (area < minArea || area > maxArea) {
       cnt.delete();
       continue;
     }
@@ -381,7 +382,7 @@ function detectFilmFrames(source) {
   src.delete();
 
   boxes.sort((a, b) => b.area - a.area);
-  return boxes.slice(0, getDesiredFrameCount());
+  return pickDistinctBoxes(boxes, getDesiredFrameCount());
 }
 
 function getHandleAt(x, y, box) {
@@ -680,6 +681,25 @@ function runDetectionOnPaused() {
     lockedBox = { ...lastBoxes[selectedIndex] };
   }
   drawGuide(lastBoxes);
+}
+
+function pickDistinctBoxes(boxes, maxCount) {
+  const selected = [];
+  for (let i = 0; i < boxes.length; i += 1) {
+    const candidate = boxes[i];
+    let overlaps = false;
+    for (let j = 0; j < selected.length; j += 1) {
+      if (iou(candidate, selected[j]) > 0.6) {
+        overlaps = true;
+        break;
+      }
+    }
+    if (!overlaps) {
+      selected.push(candidate);
+    }
+    if (selected.length >= maxCount) break;
+  }
+  return selected;
 }
 
 function ensureDetectBuffers() {
