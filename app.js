@@ -29,9 +29,14 @@ let dragState = null;
 let manualLock = false;
 let detectScale = 1;
 let paused = false;
+let pausedFrameCanvas = null;
+let pausedFrameMeta = null;
 let imageCapture = null;
 let trackCapabilities = null;
 const MAX_CANVAS_WIDTH = 1280;
+const DETECT_INTERVAL_MS = 140;
+let lastDetectTime = 0;
+let detectBuffers = null;
 
 function getMode() {
   return document.querySelector('input[name="mode"]:checked').value;
@@ -104,8 +109,10 @@ async function startCamera() {
     stopBtn.disabled = false;
     startBtn.disabled = true;
     pauseBtn.disabled = false;
-    saveBtn.disabled = false;
+    saveBtn.disabled = true;
     paused = false;
+    pausedFrameCanvas = null;
+    pausedFrameMeta = null;
     pauseBtn.textContent = '暂停';
     renderLoop();
   } catch (error) {
@@ -141,6 +148,8 @@ function stopCamera() {
   pauseBtn.disabled = true;
   saveBtn.disabled = true;
   paused = false;
+  pausedFrameCanvas = null;
+  pausedFrameMeta = null;
   pauseBtn.textContent = '暂停';
   // remove any live preview filter
   canvas.style.filter = 'none';
@@ -175,6 +184,9 @@ function syncDetectCanvasSize() {
   if (detectCanvas.width !== Math.round(targetW) || detectCanvas.height !== targetH) {
     detectCanvas.width = Math.round(targetW);
     detectCanvas.height = targetH;
+    if (detectBuffers) {
+      releaseDetectBuffers();
+    }
   }
 }
 
@@ -289,28 +301,35 @@ function iou(a, b) {
 
 function detectFilmFrames() {
   if (!window.__cvReady) return [];
+  const buffers = ensureDetectBuffers();
+  if (!buffers) return [];
   const params = getDetectParams();
   detectCtx.drawImage(video, 0, 0, detectCanvas.width, detectCanvas.height);
 
   const src = cv.imread(detectCanvas);
-  const gray = new cv.Mat();
-  const blur = new cv.Mat();
-  const edges = new cv.Mat();
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-  cv.Canny(blur, edges, params.cannyLow, params.cannyHigh);
-  const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-  cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), params.dilateIters);
-  cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+  cv.cvtColor(src, buffers.gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(buffers.gray, buffers.blur, new cv.Size(5, 5), 0);
+  cv.Canny(buffers.blur, buffers.edges, params.cannyLow, params.cannyHigh);
+  cv.dilate(
+    buffers.edges,
+    buffers.edges,
+    buffers.kernel,
+    new cv.Point(-1, -1),
+    params.dilateIters
+  );
+  cv.findContours(
+    buffers.edges,
+    buffers.contours,
+    buffers.hierarchy,
+    cv.RETR_EXTERNAL,
+    cv.CHAIN_APPROX_SIMPLE
+  );
 
   const boxes = [];
   const minArea =
     detectCanvas.width * detectCanvas.height * params.minAreaRatio;
-  for (let i = 0; i < contours.size(); i += 1) {
-    const cnt = contours.get(i);
+  for (let i = 0; i < buffers.contours.size(); i += 1) {
+    const cnt = buffers.contours.get(i);
     const area = cv.contourArea(cnt);
     if (area < minArea) {
       cnt.delete();
@@ -338,13 +357,7 @@ function detectFilmFrames() {
     cnt.delete();
   }
 
-  kernel.delete();
   src.delete();
-  gray.delete();
-  blur.delete();
-  edges.delete();
-  contours.delete();
-  hierarchy.delete();
 
   boxes.sort((a, b) => b.area - a.area);
   return boxes.length > 0 ? [boxes[0]] : [];
@@ -393,6 +406,15 @@ function renderLoop() {
     guideCanvas.style.display = 'none';
   }
   if (paused) {
+    const mode = getMode();
+    if (mode === 'bw') {
+      canvas.style.filter = 'grayscale(1) invert(1)';
+    } else {
+      canvas.style.filter = 'invert(1)';
+    }
+    if (pausedFrameCanvas) {
+      ctx.drawImage(pausedFrameCanvas, 0, 0, canvas.width, canvas.height);
+    }
     drawGuide(lastBoxes);
     return;
   }
@@ -406,7 +428,9 @@ function renderLoop() {
   }
 
   if (autoFrameToggle.checked) {
-    if (!dragState && frameCount % 6 === 0) {
+    const now = performance.now();
+    if (!dragState && now - lastDetectTime >= DETECT_INTERVAL_MS) {
+      lastDetectTime = now;
       const detected = detectFilmFrames();
       if (detected.length > 0) {
         const scaled = {
@@ -437,67 +461,38 @@ function renderLoop() {
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
-pauseBtn.addEventListener('click', () => {
+pauseBtn.addEventListener('click', async () => {
   if (!stream) return;
   paused = !paused;
   pauseBtn.textContent = paused ? '继续' : '暂停';
+  saveBtn.disabled = !paused;
   if (paused && autoFrameToggle.checked) {
     lastBoxes = lockedBox ? [lockedBox] : lastBoxes;
     drawGuide(lastBoxes);
   }
+  if (paused) {
+    pausedFrameMeta = await capturePausedFrame();
+    pausedFrameCanvas = pausedFrameMeta.canvas;
+  } else {
+    pausedFrameCanvas = null;
+    pausedFrameMeta = null;
+  }
 });
 
 saveBtn.addEventListener('click', async () => {
+  if (!paused) return;
   if (!lockedBox) {
     lockedBox = createDefaultBox();
     lastBoxes = [lockedBox];
   }
   const srcCanvas = document.createElement('canvas');
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-  let sourceW = video.videoWidth || canvas.width;
-  let sourceH = video.videoHeight || canvas.height;
-  let frameSource = video;
-
-  if (imageCapture && imageCapture.takePhoto) {
-    try {
-      const blob = await imageCapture.takePhoto();
-      const bitmap = await createImageBitmap(blob);
-      sourceW = bitmap.width;
-      sourceH = bitmap.height;
-      srcCanvas.width = sourceW;
-      srcCanvas.height = sourceH;
-      srcCtx.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      frameSource = null;
-    } catch (error) {
-      frameSource = video;
-    }
-  }
-
-  if (frameSource && imageCapture && imageCapture.grabFrame) {
-    try {
-      const bitmap = await imageCapture.grabFrame();
-      sourceW = bitmap.width;
-      sourceH = bitmap.height;
-      srcCanvas.width = sourceW;
-      srcCanvas.height = sourceH;
-      srcCtx.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      frameSource = null;
-    } catch (error) {
-      frameSource = video;
-    }
-  }
-
-  if (frameSource === video) {
-    // Use the visible (possibly scaled) `canvas` contents for cropping to avoid
-    // coordinate mismatches between the guide overlay and the saved image.
-    srcCanvas.width = sourceW;
-    srcCanvas.height = sourceH;
-    // Draw the current visual canvas into the source canvas. We'll apply pixel
-    // processing (invert/grayscale) here before cropping.
-    srcCtx.drawImage(canvas, 0, 0, sourceW, sourceH);
-  }
+  const sourceCanvas = pausedFrameCanvas || canvas;
+  const sourceW = pausedFrameMeta?.width || sourceCanvas.width;
+  const sourceH = pausedFrameMeta?.height || sourceCanvas.height;
+  srcCanvas.width = sourceW;
+  srcCanvas.height = sourceH;
+  srcCtx.drawImage(sourceCanvas, 0, 0, sourceW, sourceH);
   const frame = srcCtx.getImageData(0, 0, sourceW, sourceH);
   const data = frame.data;
   const mode = getMode();
@@ -642,3 +637,82 @@ guideCanvas.addEventListener('pointercancel', () => {
 });
 
 window.addEventListener('beforeunload', stopCamera);
+
+function ensureDetectBuffers() {
+  if (!window.__cvReady) return null;
+  if (
+    detectBuffers &&
+    detectBuffers.width === detectCanvas.width &&
+    detectBuffers.height === detectCanvas.height
+  ) {
+    return detectBuffers;
+  }
+  releaseDetectBuffers();
+  detectBuffers = {
+    width: detectCanvas.width,
+    height: detectCanvas.height,
+    gray: new cv.Mat(),
+    blur: new cv.Mat(),
+    edges: new cv.Mat(),
+    contours: new cv.MatVector(),
+    hierarchy: new cv.Mat(),
+    kernel: cv.Mat.ones(3, 3, cv.CV_8U),
+  };
+  return detectBuffers;
+}
+
+function releaseDetectBuffers() {
+  if (!detectBuffers) return;
+  detectBuffers.gray.delete();
+  detectBuffers.blur.delete();
+  detectBuffers.edges.delete();
+  detectBuffers.contours.delete();
+  detectBuffers.hierarchy.delete();
+  detectBuffers.kernel.delete();
+  detectBuffers = null;
+}
+
+async function capturePausedFrame() {
+  const captureCanvas = document.createElement('canvas');
+  const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+  let sourceW = video.videoWidth || canvas.width;
+  let sourceH = video.videoHeight || canvas.height;
+
+  if (imageCapture && imageCapture.takePhoto) {
+    try {
+      const blob = await imageCapture.takePhoto();
+      const bitmap = await createImageBitmap(blob);
+      sourceW = bitmap.width;
+      sourceH = bitmap.height;
+      captureCanvas.width = sourceW;
+      captureCanvas.height = sourceH;
+      captureCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      return { canvas: captureCanvas, width: sourceW, height: sourceH };
+    } catch (error) {
+      // Fall through to grabFrame/preview capture
+    }
+  }
+
+  if (imageCapture && imageCapture.grabFrame) {
+    try {
+      const bitmap = await imageCapture.grabFrame();
+      sourceW = bitmap.width;
+      sourceH = bitmap.height;
+      captureCanvas.width = sourceW;
+      captureCanvas.height = sourceH;
+      captureCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      return { canvas: captureCanvas, width: sourceW, height: sourceH };
+    } catch (error) {
+      // Fall through to preview capture
+    }
+  }
+
+  sourceW = canvas.width;
+  sourceH = canvas.height;
+  captureCanvas.width = sourceW;
+  captureCanvas.height = sourceH;
+  captureCtx.drawImage(canvas, 0, 0, sourceW, sourceH);
+  return { canvas: captureCanvas, width: sourceW, height: sourceH };
+}
