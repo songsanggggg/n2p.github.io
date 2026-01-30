@@ -19,6 +19,8 @@ video.setAttribute('autoplay', '');
 
 const detectCanvas = document.createElement('canvas');
 const detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
+canvas.style.transition = 'opacity 180ms ease';
+guideCanvas.style.transition = 'opacity 180ms ease';
 
 let stream = null;
 let rafId = null;
@@ -457,6 +459,15 @@ pauseBtn.addEventListener('click', async () => {
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
   if (paused) {
+    // Immediately freeze the current preview to avoid a white flash while capturing.
+    const quickFreeze = document.createElement('canvas');
+    quickFreeze.width = canvas.width;
+    quickFreeze.height = canvas.height;
+    quickFreeze.getContext('2d').drawImage(canvas, 0, 0);
+    pausedFrameCanvas = quickFreeze;
+    pausedFrameMeta = { canvas: quickFreeze, width: canvas.width, height: canvas.height };
+    canvas.style.opacity = '0.2';
+    guideCanvas.style.opacity = '0.2';
     await applyTrackConstraints(captureConstraints);
     pausedFrameMeta = await capturePausedFrame();
     pausedFrameCanvas = pausedFrameMeta.canvas;
@@ -468,10 +479,21 @@ pauseBtn.addEventListener('click', async () => {
       h: box.h / detectScale,
     }));
     scaledBoxes.forEach(clampBox);
-    lastBoxes = scaledBoxes;
-    selectedIndex = lastBoxes.length > 0 ? 0 : -1;
-    lockedBox = selectedIndex >= 0 ? { ...lastBoxes[selectedIndex] } : null;
+    if (scaledBoxes.length === 0) {
+      const fallback = createDefaultBox();
+      lastBoxes = [fallback];
+      selectedIndex = 0;
+      lockedBox = { ...fallback };
+    } else {
+      lastBoxes = scaledBoxes;
+      selectedIndex = 0;
+      lockedBox = { ...lastBoxes[selectedIndex] };
+    }
     drawGuide(lastBoxes);
+    requestAnimationFrame(() => {
+      canvas.style.opacity = '1';
+      guideCanvas.style.opacity = '1';
+    });
   } else {
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
@@ -479,6 +501,8 @@ pauseBtn.addEventListener('click', async () => {
     lockedBox = null;
     selectedIndex = -1;
     await applyTrackConstraints(previewConstraints);
+    canvas.style.opacity = '1';
+    guideCanvas.style.opacity = '1';
   }
 });
 
@@ -563,7 +587,12 @@ guideCanvas.addEventListener('pointerdown', (event) => {
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
 
-  if (!lastBoxes || lastBoxes.length === 0) return;
+  if (!lastBoxes || lastBoxes.length === 0) {
+    const fallback = createDefaultBox();
+    lastBoxes = [fallback];
+    selectedIndex = 0;
+    lockedBox = { ...fallback };
+  }
   let hitIndex = -1;
   for (let i = 0; i < lastBoxes.length; i += 1) {
     const box = lastBoxes[i];
