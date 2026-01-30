@@ -76,27 +76,6 @@ h1 {
   color: var(--ink);
 }
 
-.select {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.select select {
-  appearance: none;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  color: var(--ink);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 13px;
-}
-
 .slider {
   display: inline-flex;
   align-items: center;
@@ -181,7 +160,6 @@ button:disabled {
   }
 
   .modes,
-  .select,
   .actions {
     width: 100%;
     justify-content: space-between;

@@ -7,7 +7,6 @@ const stopBtn = document.getElementById('stopBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const saveBtn = document.getElementById('saveBtn');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
-const frameCountSelect = document.getElementById('frameCount');
 const reDetectBtn = document.getElementById('reDetectBtn');
 const detectAggressiveness = document.getElementById('detectAggressiveness');
 const detectAggressivenessValue = document.getElementById(
@@ -384,7 +383,7 @@ function detectFilmFrames(source) {
   src.delete();
 
   boxes.sort((a, b) => b.area - a.area);
-  return pickDistinctBoxes(boxes, getDesiredFrameCount());
+  return pickDistinctBoxes(boxes, 1);
 }
 
 function getHandleAt(x, y, box) {
@@ -559,11 +558,6 @@ modeInputs.forEach((input) => {
   });
 });
 
-frameCountSelect?.addEventListener('change', () => {
-  if (!paused) return;
-  runDetectionOnPaused();
-});
-
 reDetectBtn?.addEventListener('click', () => {
   if (!paused) return;
   runDetectionOnPaused();
@@ -678,11 +672,6 @@ guideCanvas.addEventListener('pointercancel', () => {
 });
 
 window.addEventListener('beforeunload', stopCamera);
-
-function getDesiredFrameCount() {
-  const value = Number(frameCountSelect?.value || 3);
-  return Math.max(1, Math.min(8, value));
-}
 
 function runDetectionOnPaused() {
   if (!paused || !pausedFrameCanvas) return;
