@@ -76,25 +76,51 @@ body {
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100%;
   padding: 20px 20px 26px;
   gap: 16px;
+  pointer-events: none;
 }
 
-.topbar {
+.more-btn {
+  justify-self: end;
+  pointer-events: auto;
+}
+
+.more-panel {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  width: min(360px, 88vw);
+  padding: 14px;
+  border-radius: 24px;
+  background: rgba(18, 22, 33, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(18px);
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+}
+
+.more-panel[data-open='true'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.control-grid {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.utility-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
+.control-grid .slider,
+.control-grid .mode-pill {
+  grid-column: span 2;
+  justify-content: space-between;
 }
 
 .bottombar {
@@ -103,28 +129,11 @@ body {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
+  pointer-events: auto;
 }
 
-.status {
+.spacer {
   justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 13px;
-  letter-spacing: 0.3px;
-  color: var(--muted);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--success);
-  box-shadow: 0 0 10px rgba(80, 227, 194, 0.7);
 }
 
 .mode-pill {
@@ -183,6 +192,7 @@ button:disabled {
   border: 1px solid var(--stroke);
   color: var(--ink);
   backdrop-filter: blur(12px);
+  pointer-events: auto;
 }
 
 .pill.primary {
@@ -267,32 +277,15 @@ button:disabled {
     border-radius: 24px;
   }
 
-  .topbar {
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
   .bottombar {
     grid-template-columns: 1fr auto 1fr;
-  }
-
-  .status {
-    justify-self: end;
   }
 }
 
 @media (max-width: 600px) {
-  .utility-row {
-    flex-direction: column;
-  }
-
   .slider {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .status {
-    padding: 8px 12px;
   }
 
   .shutter {

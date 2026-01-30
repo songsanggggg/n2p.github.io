@@ -15,35 +15,38 @@
       </section>
 
       <div class="chrome">
-        <header class="topbar">
-          <button id="startBtn" class="pill primary">开启</button>
-          <fieldset class="mode-pill" role="radiogroup" aria-label="负片模式">
-            <label>
-              <input type="radio" name="mode" value="color" checked />
-              <span>彩色</span>
-            </label>
-            <label>
-              <input type="radio" name="mode" value="bw" />
-              <span>黑白</span>
-            </label>
-          </fieldset>
-          <button id="stopBtn" class="pill ghost" disabled>关闭</button>
-        </header>
+        <button id="moreBtn" class="pill ghost more-btn" aria-expanded="false">
+          更多
+        </button>
 
-        <div class="utility-row">
-          <button id="reDetectBtn" class="pill subtle" disabled>重新识别</button>
-          <label class="slider">
-            <span>识别强度</span>
-            <input
-              type="range"
-              id="detectAggressiveness"
-              min="0"
-              max="100"
-              step="1"
-              value="70"
-            />
-            <em id="detectAggressivenessValue">70%</em>
-          </label>
+        <div id="morePanel" class="more-panel" aria-hidden="true">
+          <div class="control-grid">
+            <button id="startBtn" class="pill primary">开启</button>
+            <button id="stopBtn" class="pill ghost" disabled>关闭</button>
+            <button id="reDetectBtn" class="pill subtle" disabled>重新识别</button>
+            <fieldset class="mode-pill" role="radiogroup" aria-label="负片模式">
+              <label>
+                <input type="radio" name="mode" value="color" checked />
+                <span>彩色</span>
+              </label>
+              <label>
+                <input type="radio" name="mode" value="bw" />
+                <span>黑白</span>
+              </label>
+            </fieldset>
+            <label class="slider">
+              <span>识别强度</span>
+              <input
+                type="range"
+                id="detectAggressiveness"
+                min="0"
+                max="100"
+                step="1"
+                value="70"
+              />
+              <em id="detectAggressivenessValue">70%</em>
+            </label>
+          </div>
         </div>
 
         <footer class="bottombar">
@@ -52,10 +55,7 @@
             <span class="shutter-core"></span>
             <span class="shutter-label">暂停</span>
           </button>
-          <div class="status">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span class="status-text">负片预览</span>
-          </div>
+          <span class="spacer" aria-hidden="true"></span>
         </footer>
       </div>
     </main>

@@ -12,6 +12,8 @@ const detectAggressiveness = document.getElementById('detectAggressiveness');
 const detectAggressivenessValue = document.getElementById(
   'detectAggressivenessValue'
 );
+const moreBtn = document.getElementById('moreBtn');
+const morePanel = document.getElementById('morePanel');
 
 const video = document.createElement('video');
 video.setAttribute('playsinline', '');
@@ -177,6 +179,21 @@ function stopCamera() {
   canvas.style.filter = 'none';
   syncCanvasSize();
   drawStatus('摄像头已停止');
+}
+
+function closeMorePanel() {
+  if (!morePanel || !moreBtn) return;
+  morePanel.dataset.open = 'false';
+  morePanel.setAttribute('aria-hidden', 'true');
+  moreBtn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleMorePanel() {
+  if (!morePanel || !moreBtn) return;
+  const isOpen = morePanel.dataset.open === 'true';
+  morePanel.dataset.open = isOpen ? 'false' : 'true';
+  morePanel.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+  moreBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
 }
 
 function syncCanvasSize() {
@@ -457,6 +474,18 @@ function renderLoop() {
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
+moreBtn?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  toggleMorePanel();
+});
+document.addEventListener('click', (event) => {
+  if (!morePanel || !moreBtn) return;
+  if (morePanel.contains(event.target) || moreBtn.contains(event.target)) return;
+  closeMorePanel();
+});
+morePanel?.addEventListener('click', (event) => {
+  event.stopPropagation();
+});
 pauseBtn.addEventListener('click', async () => {
   if (!stream) return;
   paused = !paused;
