@@ -12,8 +12,6 @@ const detectAggressiveness = document.getElementById('detectAggressiveness');
 const detectAggressivenessValue = document.getElementById(
   'detectAggressivenessValue'
 );
-const moreBtn = document.getElementById('moreBtn');
-const morePanel = document.getElementById('morePanel');
 
 const video = document.createElement('video');
 video.setAttribute('playsinline', '');
@@ -179,21 +177,6 @@ function stopCamera() {
   canvas.style.filter = 'none';
   syncCanvasSize();
   drawStatus('摄像头已停止');
-}
-
-function closeMorePanel() {
-  if (!morePanel || !moreBtn) return;
-  morePanel.dataset.open = 'false';
-  morePanel.setAttribute('aria-hidden', 'true');
-  moreBtn.setAttribute('aria-expanded', 'false');
-}
-
-function toggleMorePanel() {
-  if (!morePanel || !moreBtn) return;
-  const isOpen = morePanel.dataset.open === 'true';
-  morePanel.dataset.open = isOpen ? 'false' : 'true';
-  morePanel.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
-  moreBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
 }
 
 function syncCanvasSize() {
@@ -474,28 +457,12 @@ function renderLoop() {
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
-moreBtn?.addEventListener('click', (event) => {
-  event.stopPropagation();
-  toggleMorePanel();
-});
-document.addEventListener('click', (event) => {
-  if (!morePanel || !moreBtn) return;
-  if (morePanel.contains(event.target) || moreBtn.contains(event.target)) return;
-  closeMorePanel();
-});
-morePanel?.addEventListener('click', (event) => {
-  event.stopPropagation();
-});
 pauseBtn.addEventListener('click', async () => {
   if (!stream) return;
   paused = !paused;
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
   reDetectBtn.disabled = !paused;
-  stopBtn.disabled = paused || !stream;
-  if (paused) {
-    closeMorePanel();
-  }
   if (paused) {
     // Immediately freeze the current preview to avoid a white flash while capturing.
     const quickFreeze = document.createElement('canvas');
@@ -533,8 +500,8 @@ saveBtn.addEventListener('click', async () => {
   const srcCanvas = document.createElement('canvas');
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
   const sourceCanvas = pausedFrameCanvas || canvas;
-  const sourceW = sourceCanvas.width;
-  const sourceH = sourceCanvas.height;
+  const sourceW = pausedFrameMeta?.width || sourceCanvas.width;
+  const sourceH = pausedFrameMeta?.height || sourceCanvas.height;
   srcCanvas.width = sourceW;
   srcCanvas.height = sourceH;
   srcCtx.drawImage(sourceCanvas, 0, 0, sourceW, sourceH);
@@ -561,37 +528,10 @@ saveBtn.addEventListener('click', async () => {
   }
   srcCtx.putImageData(frame, 0, 0);
   const crop = document.createElement('canvas');
-  const previewAspect = canvas.width / canvas.height;
-  const sourceAspect = srcCanvas.width / srcCanvas.height;
-  let sourceRect = {
-    x: 0,
-    y: 0,
-    w: srcCanvas.width,
-    h: srcCanvas.height,
-  };
-  if (Math.abs(previewAspect - sourceAspect) > 0.01) {
-    if (sourceAspect > previewAspect) {
-      const cropW = srcCanvas.height * previewAspect;
-      sourceRect = {
-        x: (srcCanvas.width - cropW) / 2,
-        y: 0,
-        w: cropW,
-        h: srcCanvas.height,
-      };
-    } else {
-      const cropH = srcCanvas.width / previewAspect;
-      sourceRect = {
-        x: 0,
-        y: (srcCanvas.height - cropH) / 2,
-        w: srcCanvas.width,
-        h: cropH,
-      };
-    }
-  }
-  const scaleX = sourceRect.w / canvas.width;
-  const scaleY = sourceRect.h / canvas.height;
-  const sx = Math.max(0, sourceRect.x + lockedBox.x * scaleX);
-  const sy = Math.max(0, sourceRect.y + lockedBox.y * scaleY);
+  const scaleX = srcCanvas.width / canvas.width;
+  const scaleY = srcCanvas.height / canvas.height;
+  const sx = Math.max(0, lockedBox.x * scaleX);
+  const sy = Math.max(0, lockedBox.y * scaleY);
   const sw = Math.max(1, lockedBox.w * scaleX);
   const sh = Math.max(1, lockedBox.h * scaleY);
   crop.width = Math.round(sw);
