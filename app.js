@@ -7,6 +7,8 @@ const stopBtn = document.getElementById('stopBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const saveBtn = document.getElementById('saveBtn');
 const colorizeBtn = document.getElementById('colorizeBtn');
+const loadModelBtn = document.getElementById('loadModelBtn');
+const modelProgress = document.getElementById('modelProgress');
 const modeInputs = document.querySelectorAll('input[name="mode"]');
 const reDetectBtn = document.getElementById('reDetectBtn');
 const detectAggressiveness = document.getElementById('detectAggressiveness');
@@ -42,6 +44,8 @@ let captureConstraints = null;
 let colorizeSession = null;
 let colorizeRunning = false;
 let colorizedFrameCanvas = null;
+let modelLoaded = false;
+let modelLoading = false;
 const MAX_CANVAS_WIDTH = 1280;
 const PREVIEW_MAX_STREAM_WIDTH = 1920;
 const DETECT_INTERVAL_MS = 140;
@@ -137,7 +141,7 @@ async function startCamera() {
     pauseBtn.disabled = false;
     saveBtn.disabled = true;
     reDetectBtn.disabled = true;
-    colorizeBtn.disabled = true;
+    colorizeBtn.disabled = !modelLoaded;
     paused = false;
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
@@ -476,7 +480,7 @@ pauseBtn.addEventListener('click', async () => {
   pauseBtn.textContent = paused ? '继续' : '暂停';
   saveBtn.disabled = !paused;
   reDetectBtn.disabled = !paused;
-  colorizeBtn.disabled = !paused;
+  colorizeBtn.disabled = !paused || !modelLoaded;
   if (paused) {
     // Immediately freeze the current preview to avoid a white flash while capturing.
     const quickFreeze = document.createElement('canvas');
@@ -582,17 +586,38 @@ reDetectBtn?.addEventListener('click', () => {
 });
 
 colorizeBtn?.addEventListener('click', async () => {
-  if (!paused || colorizeRunning) return;
+  if (!paused || colorizeRunning || !modelLoaded) return;
   if (selectedIndex < 0 || !lastBoxes[selectedIndex] || !pausedFrameCanvas) return;
   colorizeRunning = true;
   colorizeBtn.disabled = true;
   try {
-    await colorizeSelectedBox();
+    const colorizedCanvas = await colorizeSelectedBox();
+    if (colorizedCanvas) {
+      downloadCanvasAsImage(colorizedCanvas, 'colorized');
+    }
   } catch (error) {
     console.error('Colorize failed:', error);
   } finally {
     colorizeRunning = false;
-    colorizeBtn.disabled = !paused;
+    colorizeBtn.disabled = !paused || !modelLoaded;
+  }
+});
+
+loadModelBtn?.addEventListener('click', async () => {
+  if (modelLoaded || modelLoading) return;
+  modelLoading = true;
+  loadModelBtn.disabled = true;
+  showModelProgress(true);
+  try {
+    await loadColorizeSessionWithProgress();
+    modelLoaded = true;
+  } catch (error) {
+    console.error('Model load failed:', error);
+  } finally {
+    modelLoading = false;
+    loadModelBtn.disabled = modelLoaded;
+    colorizeBtn.disabled = !paused || !modelLoaded;
+    showModelProgress(false);
   }
 });
 
@@ -731,7 +756,7 @@ function runDetectionOnPaused() {
   drawGuide(lastBoxes);
 }
 
-async function loadColorizeSession() {
+async function loadColorizeSessionWithProgress() {
   if (colorizeSession) return colorizeSession;
   if (!window.ort) {
     throw new Error('onnxruntime-web not available');
@@ -744,7 +769,8 @@ async function loadColorizeSession() {
     providers.push('webgpu');
   }
   providers.push('wasm');
-  colorizeSession = await ort.InferenceSession.create(COLORIZE_MODEL_URL, {
+  const modelBuffer = await fetchModelWithProgress(COLORIZE_MODEL_URL);
+  colorizeSession = await ort.InferenceSession.create(modelBuffer, {
     executionProviders: providers,
   });
   return colorizeSession;
@@ -811,7 +837,7 @@ function tensorToImageData(tensor, width, height) {
 }
 
 async function colorizeSelectedBox() {
-  const session = await loadColorizeSession();
+  const session = await loadColorizeSessionWithProgress();
   const box = lastBoxes[selectedIndex];
   const positiveCanvas = createPositiveFrameCanvas();
   const srcCanvas = positiveCanvas;
@@ -869,6 +895,7 @@ async function colorizeSelectedBox() {
   const colorizedCtx = colorizedFrameCanvas.getContext('2d');
   colorizedCtx.drawImage(srcCanvas, 0, 0);
   colorizedCtx.drawImage(finalCanvas, sx, sy);
+  return finalCanvas;
 }
 
 function createPositiveFrameCanvas() {
@@ -887,6 +914,61 @@ function createPositiveFrameCanvas() {
   }
   baseCtx.putImageData(image, 0, 0);
   return baseCanvas;
+}
+
+async function fetchModelWithProgress(url) {
+  const response = await fetch(url);
+  if (!response.ok || !response.body) {
+    throw new Error('Failed to fetch model');
+  }
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    updateModelProgress(received, contentLength);
+  }
+  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+  const buffer = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.length;
+  }
+  updateModelProgress(totalLength, totalLength);
+  return buffer.buffer;
+}
+
+function showModelProgress(visible) {
+  if (!modelProgress) return;
+  modelProgress.classList.toggle('is-visible', visible);
+  if (!visible) {
+    updateModelProgress(0, 100);
+  }
+}
+
+function updateModelProgress(loaded, total) {
+  if (!modelProgress) return;
+  const progressEl = modelProgress.querySelector('progress');
+  const labelEl = modelProgress.querySelector('em');
+  const percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+  progressEl.value = percent;
+  labelEl.textContent = `${percent}%`;
+}
+
+function downloadCanvasAsImage(canvasEl, prefix) {
+  canvasEl.toBlob((blob) => {
+    if (!blob) return;
+    const link = document.createElement('a');
+    link.download = `${prefix}-${Date.now()}.png`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }, 'image/png');
 }
 
 function pickDistinctBoxes(boxes, maxCount) {
