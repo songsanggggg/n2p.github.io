@@ -33,7 +33,11 @@ let pausedFrameCanvas = null;
 let pausedFrameMeta = null;
 let imageCapture = null;
 let trackCapabilities = null;
+let activeTrack = null;
+let previewConstraints = null;
+let captureConstraints = null;
 const MAX_CANVAS_WIDTH = 1280;
+const PREVIEW_MAX_STREAM_WIDTH = 1920;
 const DETECT_INTERVAL_MS = 140;
 let lastDetectTime = 0;
 let detectBuffers = null;
@@ -79,6 +83,9 @@ async function startCamera() {
     await applyContinuousFocus(stream);
     imageCapture = null;
     trackCapabilities = null;
+    activeTrack = null;
+    previewConstraints = null;
+    captureConstraints = null;
     const [track] = stream.getVideoTracks();
     if (track && window.ImageCapture) {
       try {
@@ -88,14 +95,25 @@ async function startCamera() {
           if (trackCapabilities.width && trackCapabilities.height) {
             const maxWidth = trackCapabilities.width.max || 0;
             const maxHeight = trackCapabilities.height.max || 0;
-            // Avoid forcing the camera to its absolute max resolution — cap to a reasonable size
-            const desiredW = Math.min(maxWidth || MAX_CANVAS_WIDTH, MAX_CANVAS_WIDTH);
-            const desiredH = Math.min(maxHeight || Math.round((desiredW * 9) / 16), Math.round((desiredW * 9) / 16));
+            const previewW = Math.min(
+              maxWidth || PREVIEW_MAX_STREAM_WIDTH,
+              PREVIEW_MAX_STREAM_WIDTH
+            );
+            const previewH = Math.min(
+              maxHeight || Math.round((previewW * 9) / 16),
+              Math.round((previewW * 9) / 16)
+            );
+            previewConstraints = {
+              width: { ideal: previewW },
+              height: { ideal: previewH },
+            };
+            captureConstraints = {
+              width: { ideal: maxWidth || previewW },
+              height: { ideal: maxHeight || previewH },
+            };
+            activeTrack = track;
             try {
-              await track.applyConstraints({
-                width: { ideal: desiredW },
-                height: { ideal: desiredH },
-              });
+              await track.applyConstraints(previewConstraints);
             } catch (error) {
               // Ignore if the device rejects these constraints.
             }
@@ -471,11 +489,13 @@ pauseBtn.addEventListener('click', async () => {
     drawGuide(lastBoxes);
   }
   if (paused) {
+    await applyTrackConstraints(captureConstraints);
     pausedFrameMeta = await capturePausedFrame();
     pausedFrameCanvas = pausedFrameMeta.canvas;
   } else {
     pausedFrameCanvas = null;
     pausedFrameMeta = null;
+    await applyTrackConstraints(previewConstraints);
   }
 });
 
@@ -680,7 +700,21 @@ async function capturePausedFrame() {
 
   if (imageCapture && imageCapture.takePhoto) {
     try {
-      const blob = await imageCapture.takePhoto();
+      let photoSettings = undefined;
+      if (imageCapture.getPhotoCapabilities) {
+        try {
+          const caps = await imageCapture.getPhotoCapabilities();
+          if (caps.imageWidth && caps.imageHeight) {
+            photoSettings = {
+              imageWidth: caps.imageWidth.max,
+              imageHeight: caps.imageHeight.max,
+            };
+          }
+        } catch (error) {
+          // Ignore photo capability errors and fall back to default takePhoto.
+        }
+      }
+      const blob = await imageCapture.takePhoto(photoSettings);
       const bitmap = await createImageBitmap(blob);
       sourceW = bitmap.width;
       sourceH = bitmap.height;
@@ -715,4 +749,13 @@ async function capturePausedFrame() {
   captureCanvas.height = sourceH;
   captureCtx.drawImage(canvas, 0, 0, sourceW, sourceH);
   return { canvas: captureCanvas, width: sourceW, height: sourceH };
+}
+
+async function applyTrackConstraints(constraints) {
+  if (!activeTrack || !constraints) return;
+  try {
+    await activeTrack.applyConstraints(constraints);
+  } catch (error) {
+    // Ignore if the device rejects these constraints.
+  }
 }
