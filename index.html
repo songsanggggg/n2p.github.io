@@ -7,11 +7,17 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="page">
-      <header class="topbar">
-        <h1>负片预览</h1>
-        <div class="controls">
-          <fieldset class="modes" role="radiogroup" aria-label="负片模式">
+    <main class="camera">
+      <section class="viewer">
+        <canvas id="output" width="1280" height="720"></canvas>
+        <canvas id="guide" width="1280" height="720"></canvas>
+        <div class="glass-frame" aria-hidden="true"></div>
+      </section>
+
+      <div class="chrome">
+        <header class="topbar">
+          <button id="startBtn" class="pill primary">开启</button>
+          <fieldset class="mode-pill" role="radiogroup" aria-label="负片模式">
             <label>
               <input type="radio" name="mode" value="color" checked />
               <span>彩色</span>
@@ -21,7 +27,11 @@
               <span>黑白</span>
             </label>
           </fieldset>
-          <button id="reDetectBtn" class="ghost" disabled>重新识别</button>
+          <button id="stopBtn" class="pill ghost" disabled>关闭</button>
+        </header>
+
+        <div class="utility-row">
+          <button id="reDetectBtn" class="pill subtle" disabled>重新识别</button>
           <label class="slider">
             <span>识别强度</span>
             <input
@@ -34,19 +44,20 @@
             />
             <em id="detectAggressivenessValue">70%</em>
           </label>
-          <div class="actions">
-            <button id="startBtn" class="primary">开始</button>
-            <button id="stopBtn" class="ghost" disabled>停止</button>
-            <button id="pauseBtn" class="ghost" disabled>暂停</button>
-            <button id="saveBtn" class="ghost" disabled>保存</button>
-          </div>
         </div>
-      </header>
 
-      <section class="viewer">
-        <canvas id="output" width="1280" height="720"></canvas>
-        <canvas id="guide" width="1280" height="720"></canvas>
-      </section>
+        <footer class="bottombar">
+          <button id="saveBtn" class="pill ghost" disabled>保存</button>
+          <button id="pauseBtn" class="shutter" disabled>
+            <span class="shutter-core"></span>
+            <span class="shutter-label">暂停</span>
+          </button>
+          <div class="status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="status-text">负片预览</span>
+          </div>
+        </footer>
+      </div>
     </main>
 
     <script>
